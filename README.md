@@ -39,14 +39,14 @@ Jev is only called when the player can't walk freely. Walking uses memory alone.
    npm run dev        # normal run: Jev reads the screen, the bot presses buttons
    npm run dry        # dry run: no Jev and no buttons; logs memory while you play by hand
    ```
-2. In another terminal, launch BizHawk with the script. `--url_get` is required, because it is what turns on BizHawk's HTTP functions:
+2. In another terminal, run `./play.sh`. To use a different ROM or BizHawk, set `ROM=...` or `BIZHAWK=...`. It runs this command::
    ```sh
    ~/.local/share/bizhawk/EmuHawkMono.sh \
      --url_get=http://127.0.0.1:3100/ \
      --lua="$PWD/lua/emerald-jev.lua" \
      "$HOME/Downloads/Pokemon - Emerald Version (USA, Europe).zip"
    ```
-   Don't use the `/opt/bizhawk` install directly: it crashes with "Access to the path '/opt/bizhawk/GBA' is denied" because it can't save there.
+   `--url_get` is required, because it is what turns on BizHawk's HTTP functions. Don't use the `/opt/bizhawk` install directly: it crashes with "Access to the path '/opt/bizhawk/GBA' is denied" because it can't save there.
 
 Each run writes `runs/<time>.jsonl` with one line per step: memory state, the exact questions, Jev's answers and the chosen buttons. Every frame Jev looked at is saved in `runs/<time>/`.
 
