@@ -24,8 +24,19 @@ const wait = (reason: string, frames = 30): Action => act(reason, press([], 1, f
 export const needsScreen = (s: GameState) => s.inBattle || s.controlsLocked || !s.overworld
 
 // A menu whose cursor has to be found before pressing: the server asks Jev which of `options`
-// is highlighted, then moves toward `want` (Up/Down through a vertical list) and presses `then`.
-export type Highlight = { kind: 'highlight'; menu: string; options: string[]; want: string; then: Press[]; reason: string }
+// is highlighted, then moves toward `want` (Up/Down, or Left/Right when `horizontal`) and
+// presses `then`. When `want` is already highlighted and there is a `next`, that one is asked
+// about in the same step (the bag: first the pocket tab, then the item).
+export type Highlight = {
+  kind: 'highlight'
+  menu: string
+  options: string[]
+  want: string
+  then: Press[]
+  reason: string
+  horizontal?: boolean
+  next?: Highlight
+}
 
 // ---------- Battle: what memory says the game is waiting for ----------
 
@@ -121,13 +132,23 @@ export function decideFromScreen(s: GameState, f: Facts | null, map: string | nu
         session.intent = null
         return act('no Potions left: close the bag', press(['B'], 6, step))
       }
+      // The bag reopens on whichever pocket was last used, so first make sure ITEMS is showing.
       return {
         kind: 'highlight',
-        menu: 'ITEMS pocket of the bag',
-        options: [...f.bag.map((i) => i.name), 'CANCEL'],
-        want: 'POTION',
-        then: [press(['A'], 6, step)],
-        reason: 'choose POTION',
+        menu: 'pocket tabs at the top of the bag',
+        options: ['ITEMS', 'POKé BALLS', 'TMs & HMs', 'BERRIES', 'KEY ITEMS'],
+        want: 'ITEMS',
+        then: [],
+        reason: 'ITEMS pocket is open',
+        horizontal: true,
+        next: {
+          kind: 'highlight',
+          menu: 'ITEMS pocket of the bag',
+          options: [...f.bag.map((i) => i.name), 'CLOSE BAG'],
+          want: 'POTION',
+          then: [press(['A'], 6, step)],
+          reason: 'choose POTION',
+        },
       }
 
     case 'item_action_menu':
@@ -198,7 +219,8 @@ export function pressesForHighlight(h: Highlight, at: string | null, s: GameStat
   const from = h.options.indexOf(at)
   const to = h.options.indexOf(h.want)
   // Unknown positions (like "another item" in a shop list): step down one and look again.
-  const dir: Dir = from === -1 || to === -1 || to > from ? 'Down' : 'Up'
+  const forward = from === -1 || to === -1 || to > from
+  const dir: Dir = h.horizontal ? (forward ? 'Right' : 'Left') : forward ? 'Down' : 'Up'
   const n = from === -1 || to === -1 ? 1 : Math.abs(to - from)
   return act(`move the cursor ${dir} toward ${h.want}`, ...Array.from({ length: n }, () => press([dir], 3, 6)), press([], 1, framesFor(s, SCREEN_STEP_SECONDS)))
 }

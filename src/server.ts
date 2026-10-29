@@ -162,8 +162,17 @@ async function decide(state: GameState, facts: Facts, map: string | null): Promi
   const decision = decideFromScreen(state, facts, map, read, session)
   if (decision.kind !== 'highlight') return { action: decision, calls: [call], frame }
 
-  const cursor = await readHighlighted(image, decision.menu, decision.options)
-  return { action: pressesForHighlight(decision, cursor.highlighted, state), calls: [call, cursor.call], frame }
+  const calls = [call]
+  let h = decision
+  for (;;) {
+    const cursor = await readHighlighted(image, h.menu, h.options)
+    calls.push(cursor.call)
+    if (cursor.highlighted === h.want && h.next) {
+      h = h.next
+      continue
+    }
+    return { action: pressesForHighlight(h, cursor.highlighted, state), calls, frame }
+  }
 }
 
 // Facts without the lookup functions, for the JSON log.
