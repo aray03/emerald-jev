@@ -7,23 +7,29 @@ import { Navigator } from './nav.ts'
 import { decideFromScreen, decideOnFoot, isDone, needsScreen } from './policy.ts'
 import { screenQuestions } from './questions.ts'
 import { gameStateSchema, type Action } from './schemas.ts'
+import { queueSave, takePendingSave } from './states.ts'
 
 const PORT = Number(process.env.EMERALD_PORT ?? 3100)
 const DRY_RUN = process.env.DRY_RUN === '1'
 const EXPECTED_GAME_CODE = 'BPEE' // Pokémon Emerald (USA, Europe)
 
 const app = express()
-const nav = new Navigator()
+let nav = new Navigator()
 let step = 0
 
-// Reply format read by lua/emerald-jev.lua:
-//   presses joined by ";", each "<buttons joined by , or -> <hold frames> <wait frames>", or "DONE".
+// Reply format read by lua/emerald-jev.lua: chunks joined by ";". Each chunk is
+//   "<buttons joined by , or -> <hold frames> <wait frames>", "SAVE:<absolute path>", or "DONE".
+// A queued save state goes first, so it captures the game before this step's presses.
 function encode(action: Action): string {
-  if (action.kind === 'done') return 'DONE'
-  return action.presses.map((p) => `${p.buttons.join(',') || '-'} ${p.hold} ${p.wait}`).join(';')
+  const save = takePendingSave()
+  const body =
+    action.kind === 'done'
+      ? 'DONE'
+      : action.presses.map((p) => `${p.buttons.join(',') || '-'} ${p.hold} ${p.wait}`).join(';')
+  return save ? `SAVE:${save};${body}` : body
 }
 
-const waitReply = (frames: number) => `- 1 ${frames}`
+const waitReply = (frames: number) => encode({ kind: 'press', presses: [{ buttons: [], hold: 1, wait: frames }], reason: 'wait' })
 
 // BizHawk's --url_get flag needs something to answer here; it also works as a health check.
 app.get('/', (_req, res) => {
@@ -32,8 +38,19 @@ app.get('/', (_req, res) => {
 
 // The Lua script asks where to save screenshots, so both sides agree on one absolute path.
 // (BizHawk runs scripts from their own folder, so a relative path would land somewhere else.)
+// It's also the first thing the script asks, so it marks the start of a new session (possibly
+// from a loaded save state): forget anything learned about the previous one.
 app.get('/screenshot-path', (_req, res) => {
+  nav = new Navigator()
+  console.log('new session: BizHawk script connected')
   res.type('text').send(path.join(RUNS_DIR, 'frame.png'))
+})
+
+// Queue a save state; the script saves it on its next step. Used by `npm run save -- <name>`.
+app.post('/save', (req, res) => {
+  const file = queueSave(String(req.query.name ?? 'manual'))
+  console.log(`queued save state ${file}`)
+  res.type('text').send(file)
 })
 
 // comm.httpPost sends a form field called "payload".

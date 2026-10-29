@@ -8,4 +8,10 @@ cd "$(dirname "$(realpath "$0")")"
 BIZHAWK="${BIZHAWK:-$HOME/.local/share/bizhawk/EmuHawkMono.sh}"
 ROM="${ROM:-$HOME/Downloads/Pokemon - Emerald Version (USA, Europe).zip}"
 
-exec "$BIZHAWK" --url_get=http://127.0.0.1:3100/ --lua="$PWD/lua/emerald-jev.lua" "$ROM"
+# STATE=states/<name>.State starts from a saved checkpoint instead of the title screen.
+args=(--url_get=http://127.0.0.1:3100/ --lua="$PWD/lua/emerald-jev.lua")
+if [[ -n "${STATE:-}" ]]; then
+  args+=(--load-state="$(realpath "$STATE")")
+fi
+
+exec "$BIZHAWK" "${args[@]}" "$ROM"

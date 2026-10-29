@@ -50,6 +50,14 @@ Jev is only called when the player can't walk freely. Walking uses memory alone.
 
 Each run writes `runs/<time>.jsonl` with one line per step: memory state, the exact questions, Jev's answers and the chosen buttons. Every frame Jev looked at is saved in `runs/<time>/`.
 
+## Save states
+
+- `npm run save -- <name>` saves the game to `states/<name>.State` on the bot's next step. This works in dry runs too.
+- `npm run states` lists your saves.
+- `STATE=states/<name>.State ./play.sh` starts BizHawk from that save instead of the title screen.
+
+Restart the server between runs so it forgets what it learned about the last one. `states/` is gitignored.
+
 ## First time: do a dry run
 
 The memory addresses come from the pret/pokeemerald decompilation and haven't been checked on a real run yet. Run `npm run dry`, start a New Game by hand, and check that:

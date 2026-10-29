@@ -8,7 +8,9 @@
     "start": "tsx --env-file-if-exists=.env src/server.ts",
     "dry": "DRY_RUN=1 tsx --env-file-if-exists=.env src/server.ts",
     "typecheck": "tsc --noEmit",
-    "maps": "tsx scripts/build-maps.ts"
+    "maps": "tsx scripts/build-maps.ts",
+    "save": "tsx scripts/save.ts",
+    "states": "tsx scripts/states.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

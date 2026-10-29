@@ -85,14 +85,22 @@ local function hold(buttons, frames)
   end
 end
 
--- Reply: presses joined by ";", each "<buttons joined by , or -> <hold> <wait>", or "DONE".
+-- Reply: chunks joined by ";". Each is "<buttons joined by , or -> <hold> <wait>",
+-- "SAVE:<absolute path>" (save a state there), or "DONE". Returns true on DONE.
 local function run(reply)
   for chunk in reply:gmatch("[^;]+") do
+    local savePath = chunk:match("^%s*SAVE:(.-)%s*$")
+    if savePath then
+      savestate.save(savePath)
+      console.log("emerald-jev: saved state " .. savePath)
+      goto continue
+    end
+    if chunk:match("^%s*DONE") then return true end
     local names, holdFrames, waitFrames = chunk:match("^%s*(%S+)%s+(%d+)%s+(%d+)%s*$")
     if not names then
       console.log("emerald-jev: bad reply chunk: " .. chunk)
       advance(30)
-      return
+      return false
     end
     local buttons = {}
     if names ~= "-" then
@@ -100,7 +108,9 @@ local function run(reply)
     end
     hold(buttons, tonumber(holdFrames))
     advance(tonumber(waitFrames))
+    ::continue::
   end
+  return false
 end
 
 client.speedmode(SPEED_PERCENT)
@@ -130,11 +140,9 @@ while true do
     -- Server down or HTTP disabled: wait, and never press anything without an answer.
     console.log("emerald-jev: no reply from server, retrying")
     advance(120)
-  elseif reply:match("^%s*DONE") then
+  elseif run(reply) then
     console.log("emerald-jev: done")
     break
-  else
-    run(reply)
   end
 end
 
