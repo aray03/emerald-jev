@@ -36,6 +36,20 @@ export const MAP_SIZE: Record<MapName, { w: number; h: number }> = {
   lab: { w: 13, h: 13 },
 }
 
+// Doors and stairs (warp_events in each map.json). Stepping onto one changes the map, so
+// pathfinding must never walk across one unless it's the goal.
+export const WARPS: Record<MapName, Tile[]> = {
+  truck: [{ x: 4, y: 1 }, { x: 4, y: 2 }, { x: 4, y: 3 }],
+  littleroot: [{ x: 14, y: 8 }, { x: 5, y: 8 }, { x: 7, y: 16 }],
+  oldale: [{ x: 5, y: 7 }, { x: 15, y: 16 }, { x: 6, y: 16 }, { x: 14, y: 6 }],
+  route101: [],
+  brendan1F: [{ x: 9, y: 8 }, { x: 8, y: 8 }, { x: 8, y: 2 }],
+  brendan2F: [{ x: 7, y: 1 }],
+  may1F: [{ x: 1, y: 8 }, { x: 2, y: 8 }, { x: 2, y: 2 }],
+  may2F: [{ x: 1, y: 1 }],
+  lab: [{ x: 6, y: 12 }, { x: 7, y: 12 }],
+}
+
 export function mapName(s: GameState): MapName | null {
   for (const [name, [g, n]] of Object.entries(MAP)) {
     if (s.mapGroup === g && s.mapNum === n) return name as MapName

@@ -1,5 +1,5 @@
 import type { MapName, Tile } from './goals.ts'
-import { MAP_SIZE } from './goals.ts'
+import { MAP_SIZE, WARPS } from './goals.ts'
 import type { Dir } from './schemas.ts'
 
 // Grid pathfinding that learns walls by bumping into them.
@@ -77,6 +77,8 @@ export class Navigator {
     const firstDir = new Map<string, Dir>()
     const seen = new Set([`${from.x},${from.y}`])
     const queue: Tile[] = [from]
+    // Doors and stairs warp to another map, so only step onto one when it's the destination.
+    const isWarp = (t: Tile) => WARPS[map].some((w) => w.x === t.x && w.y === t.y)
 
     while (queue.length) {
       const cur = queue.shift()!
@@ -85,6 +87,7 @@ export class Navigator {
         const next = { x: cur.x + STEP[dir].x, y: cur.y + STEP[dir].y }
         const k = `${next.x},${next.y}`
         if (!inBounds(next) || seen.has(k)) continue
+        if (isWarp(next) && !(next.x === to.x && next.y === to.y)) continue
         seen.add(k)
         const via = cur === from ? dir : firstDir.get(`${cur.x},${cur.y}`)!
         firstDir.set(k, via)
