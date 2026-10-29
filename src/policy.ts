@@ -20,9 +20,6 @@ function isPast(pos: { x: number; y: number }, to: { x: number; y: number }, dir
   }
 }
 
-const BATTLE_TYPE_TRAINER = 1 << 3
-const BATTLE_TYPE_FIRST_BATTLE = 1 << 4
-
 // Real time between screen checks. Button holds and walking stay in game frames, but these
 // gaps scale with emulator speed: at 400% speed, 0.25 s is 60 frames (1 s of game time).
 const SCREEN_STEP_SECONDS = 0.25
@@ -90,6 +87,7 @@ export function decideFromScreen(s: GameState, r: ScreenRead): Action {
   }
 }
 
+// Every battle is fought, never run from: FIGHT, then the first move.
 function decideBattle(s: GameState, r: ScreenRead): Action {
   const step = framesFor(s, SCREEN_STEP_SECONDS)
   const slow = framesFor(s, SLOW_STEP_SECONDS)
@@ -97,12 +95,8 @@ function decideBattle(s: GameState, r: ScreenRead): Action {
   if (r.battleMoves === 'yes') return act('use the first move', press(['A'], 6, slow))
   if (r.battleMoves === 'unclear' || r.battleActions === 'unclear') return wait('unsure which battle menu is open', slow)
 
-  if (r.battleActions === 'yes') {
-    const mustFight = (s.battleFlags & (BATTLE_TYPE_FIRST_BATTLE | BATTLE_TYPE_TRAINER)) !== 0
-    if (mustFight) return act('choose FIGHT', press(['A'], 6, step))
-    // FIGHT is top-left; RUN is bottom-right.
-    return act('run from the wild Pokémon', press(['Down'], 4, 8), press(['Right'], 4, 8), press(['A'], 6, slow))
-  }
+  // FIGHT is the top-left option, where the cursor starts.
+  if (r.battleActions === 'yes') return act('choose FIGHT', press(['A'], 6, step))
 
   return act('advance the battle text', press(['A'], 6, step))
 }

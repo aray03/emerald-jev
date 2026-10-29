@@ -68,5 +68,5 @@ If any of these are wrong, fix the address in `lua/emerald-jev.lua` before a rea
 
 - Walking learns walls by bumping into them. Ledges or tall grass on Route 101 can cause detours.
 - The naming screen types the name **A**. The bot plays as a boy and picks Torchic.
-- Wild battles: it tries to run. The first battle is fought with the first move.
+- Battles: it never runs. It always picks FIGHT and the first move, wild or not.
 - Image input is an experimental TypeSafe feature, which is why requests send `TypeSafe-Danger-Zone-Images: true`.
