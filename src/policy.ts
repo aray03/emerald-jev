@@ -6,7 +6,19 @@ import type { Action, Button, Dir, GameState, Press } from './schemas.ts'
 // Decision rules: memory state plus Jev's screen answers -> buttons.
 // Memory decides whenever it can; Jev is only consulted when the player can't move freely.
 
-const OPPOSITE: Record<Dir, Dir> = { Up: 'Down', Down: 'Up', Left: 'Right', Right: 'Left' }
+// Whether `pos` is already beyond `to` in direction `dir`.
+function isPast(pos: { x: number; y: number }, to: { x: number; y: number }, dir: Dir) {
+  switch (dir) {
+    case 'Up':
+      return pos.y < to.y
+    case 'Down':
+      return pos.y > to.y
+    case 'Left':
+      return pos.x < to.x
+    case 'Right':
+      return pos.x > to.x
+  }
+}
 
 const BATTLE_TYPE_TRAINER = 1 << 3
 const BATTLE_TYPE_FIRST_BATTLE = 1 << 4
@@ -103,14 +115,14 @@ export function decideOnFoot(s: GameState, nav: Navigator): Action {
 
   const pos = { x: s.x, y: s.y }
   nav.observe(map, pos)
-  const dir = nav.nextDir(map, pos, goal.to)
 
-  // Never walk back against the push direction: a push that moved us past the target
-  // (instead of through a door or off the map) would otherwise loop back and forth.
-  if (goal.push && dir === OPPOSITE[goal.push]) {
+  // Once a push has carried us past the target (instead of through a door or off the map),
+  // keep pushing rather than walking back, which would loop back and forth.
+  if (goal.push && isPast(pos, goal.to, goal.push)) {
     return act(`${goal.name}: keep going ${goal.push}`, press([goal.push], 16, 30))
   }
 
+  const dir = nav.nextDir(map, pos, goal.to)
   if (dir) return act(`${goal.name}: step ${dir}`, press([dir], 16, 6))
   if (goal.face) return act(`${goal.name}: face ${goal.face} and press A`, press([goal.face], 3, 8), press(['A'], 6, 30))
   if (goal.push) return act(`${goal.name}: go ${goal.push}`, press([goal.push], 16, 30))

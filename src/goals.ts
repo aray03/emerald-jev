@@ -23,19 +23,6 @@ export const MAP = {
 
 export type MapName = keyof typeof MAP
 
-// Map sizes in tiles, for pathfinding bounds.
-export const MAP_SIZE: Record<MapName, { w: number; h: number }> = {
-  truck: { w: 5, h: 5 },
-  littleroot: { w: 20, h: 20 },
-  oldale: { w: 20, h: 20 },
-  route101: { w: 20, h: 20 },
-  brendan1F: { w: 11, h: 9 },
-  brendan2F: { w: 9, h: 8 },
-  may1F: { w: 11, h: 9 },
-  may2F: { w: 9, h: 8 },
-  lab: { w: 13, h: 13 },
-}
-
 // Doors and stairs (warp_events in each map.json). Stepping onto one changes the map, so
 // pathfinding must never walk across one unless it's the goal.
 export const WARPS: Record<MapName, Tile[]> = {
