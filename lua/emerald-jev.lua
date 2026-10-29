@@ -6,9 +6,8 @@ local SERVER = "http://127.0.0.1:3100"
 local SETTLE_FRAMES = 10 -- let the game draw before reading the screen
 local BUS = "System Bus"
 
--- Absolute paths, since BizHawk resolves relative paths against its own install folder.
-local SCRIPT_DIR = debug.getinfo(1, "S").source:match("^@(.*)/lua/[^/]*$") or "."
-local SCREENSHOT = SCRIPT_DIR .. "/runs/frame.png"
+-- The server says where to save screenshots (an absolute path it can read), set at startup.
+local SCREENSHOT = nil
 
 -- pret/pokeemerald symbols (USA/Europe).
 local ADDR = {
@@ -102,9 +101,21 @@ local function run(reply)
   end
 end
 
-console.log("emerald-jev: talking to " .. SERVER .. ", screenshots at " .. SCREENSHOT)
+console.log("emerald-jev: talking to " .. SERVER)
 if readGameCode() ~= "BPEE" then
   console.log("emerald-jev: warning, game code is " .. readGameCode() .. ", expected BPEE")
+end
+
+while SCREENSHOT == nil do
+  -- httpGet throws (rather than returning nil) when the server isn't up yet.
+  local ok, path = pcall(comm.httpGet, SERVER .. "/screenshot-path")
+  if ok and type(path) == "string" and path:match("^/") then
+    SCREENSHOT = path:gsub("%s+$", "")
+    console.log("emerald-jev: saving screenshots to " .. SCREENSHOT)
+  else
+    console.log("emerald-jev: waiting for the server at " .. SERVER)
+    advance(120)
+  end
 end
 
 while true do

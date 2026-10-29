@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import express from 'express'
 import { readScreen, upscaleFrame } from './jev.ts'
-import { logPath, logStep, saveFrame } from './log.ts'
+import { logPath, logStep, RUNS_DIR, saveFrame } from './log.ts'
 import { Navigator } from './nav.ts'
 import { decideFromScreen, decideOnFoot, isDone, needsScreen } from './policy.ts'
 import { screenQuestions } from './questions.ts'
@@ -29,6 +30,12 @@ app.get('/', (_req, res) => {
   res.type('text').send('emerald-jev ok')
 })
 
+// The Lua script asks where to save screenshots, so both sides agree on one absolute path.
+// (BizHawk runs scripts from their own folder, so a relative path would land somewhere else.)
+app.get('/screenshot-path', (_req, res) => {
+  res.type('text').send(path.join(RUNS_DIR, 'frame.png'))
+})
+
 // comm.httpPost sends a form field called "payload".
 app.post('/step', express.urlencoded({ extended: false, limit: '1mb' }), async (req, res) => {
   res.type('text')
@@ -51,8 +58,17 @@ app.post('/step', express.urlencoded({ extended: false, limit: '1mb' }), async (
 
   if (DRY_RUN) {
     // Watch memory while playing by hand; press nothing.
+    // Keep the frames Jev would have been asked about, to test the questions offline later.
     console.log(`[dry ${step}]`, JSON.stringify({ ...state, screenshot: undefined }))
-    logStep({ step, dryRun: true, state })
+    let frame: string | undefined
+    if (needsScreen(state)) {
+      try {
+        frame = saveFrame(step, state.screenshot)
+      } catch (err) {
+        console.error(`[dry ${step}] couldn't copy the screenshot`, err)
+      }
+    }
+    logStep({ step, dryRun: true, state, frame })
     res.send(waitReply(30))
     return
   }
