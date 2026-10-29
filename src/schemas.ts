@@ -3,6 +3,7 @@ import { z } from 'zod'
 // What lua/emerald-jev.lua reads from memory and sends each step.
 export const gameStateSchema = z.object({
   frame: z.number().int(),
+  speedPercent: z.number().int().positive().default(100), // emulator speed set by the Lua script
   gameCode: z.string(),
   mapGroup: z.number().int(),
   mapNum: z.number().int(),

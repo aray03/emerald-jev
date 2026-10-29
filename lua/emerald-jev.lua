@@ -4,6 +4,7 @@
 
 local SERVER = "http://127.0.0.1:3100"
 local SETTLE_FRAMES = 10 -- let the game draw before reading the screen
+local SPEED_PERCENT = 400 -- emulator speed; the server scales its waits so screen checks stay ~0.25 s apart
 local BUS = "System Bus"
 
 -- The server says where to save screenshots (an absolute path it can read), set at startup.
@@ -49,10 +50,11 @@ local function readState()
 
   -- Only numbers and fixed strings, so a hand-built JSON string is safe.
   return string.format(
-    '{"frame":%d,"gameCode":"%s","mapGroup":%d,"mapNum":%d,"x":%d,"y":%d,' ..
+    '{"frame":%d,"speedPercent":%d,"gameCode":"%s","mapGroup":%d,"mapNum":%d,"x":%d,"y":%d,' ..
       '"inBattle":%s,"controlsLocked":%s,"overworld":%s,"battleFlags":%d,"battleOutcome":%d,' ..
       '"vars":{"introState":%d,"townState":%d,"route101State":%d,"birchLabState":%d},"screenshot":"%s"}',
     emu.framecount(),
+    SPEED_PERCENT,
     readGameCode(),
     s8(sb1 + 0x04),
     s8(sb1 + 0x05),
@@ -101,7 +103,8 @@ local function run(reply)
   end
 end
 
-console.log("emerald-jev: talking to " .. SERVER)
+client.speedmode(SPEED_PERCENT)
+console.log("emerald-jev: talking to " .. SERVER .. " at " .. SPEED_PERCENT .. "% speed")
 if readGameCode() ~= "BPEE" then
   console.log("emerald-jev: warning, game code is " .. readGameCode() .. ", expected BPEE")
 end
