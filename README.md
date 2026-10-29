@@ -23,6 +23,7 @@ Jev is only called when the player can't walk freely. Walking uses memory alone.
    ```sh
    yay -S bizhawk-bin            # or unpack BizHawk-2.11.1-linux-x64.tar.gz from GitHub releases
    sudo pacman -S --needed mono lua54 openal
+   cp -a /opt/bizhawk ~/.local/share/bizhawk   # BizHawk writes next to itself; /opt is read-only
    ```
 2. **Install dependencies** and add your API key:
    ```sh
@@ -40,12 +41,12 @@ Jev is only called when the player can't walk freely. Walking uses memory alone.
    ```
 2. In another terminal, launch BizHawk with the script. `--url_get` is required, because it is what turns on BizHawk's HTTP functions:
    ```sh
-   EmuHawkMono.sh \
+   ~/.local/share/bizhawk/EmuHawkMono.sh \
      --url_get=http://127.0.0.1:3100/ \
      --lua="$PWD/lua/emerald-jev.lua" \
      "$HOME/Downloads/Pokemon - Emerald Version (USA, Europe).zip"
    ```
-   If you installed from the AUR, the launcher may be called `bizhawk` instead of `EmuHawkMono.sh`.
+   Don't use the `/opt/bizhawk` install directly: it crashes with "Access to the path '/opt/bizhawk/GBA' is denied" because it can't save there.
 
 Each run writes `runs/<time>.jsonl` with one line per step: memory state, the exact questions, Jev's answers and the chosen buttons. Every frame Jev looked at is saved in `runs/<time>/`.
 
