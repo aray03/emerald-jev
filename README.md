@@ -84,9 +84,10 @@ Code applies the rules:
 
 - **Story order:** `src/goals.ts`, checked against story flags and variables in memory.
 - **Healing and shopping:** the first time in Oldale, Petalburg and Rustboro, heal at the Pokémon Center, then buy Potions up to **6**.
-- **Potions:** below **1/3 HP**, use a Potion in battle or out. With none left, go back to a Center.
+- **Potions:** below **1/3 HP**, use a Potion in battle or out. With none left, go to the **nearest** Center by walking distance.
+- **Out of PP** in every attacking move: go to the nearest Center to restore it. In a wild battle it **runs**; a trainer battle can't be run from, so there it fights on.
 - **Training:** train in Route 104's grass until Torchic reaches **level 16**, then face Roxanne.
-- **Battles:** **never run.**
+- **Battles:** never run, except from a wild battle when out of PP.
 - **Save states:** saved automatically as each story step is done (`states/01-got-starter.State`, and so on).
 
 Walking uses `src/maps.generated.json` (`npm run maps`), which holds every map on the route with its walls, ledges, grass, doors, stairs and map edges. Move, species and item names come from `src/data.generated.json` (`npm run data`).

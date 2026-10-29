@@ -102,6 +102,9 @@ export function martStock(map: string, flag: (id: number) => boolean): string[] 
   return mart.rules.find((r) => flag(r.flag) === r.set)?.items ?? mart.default
 }
 
+// Whether any damaging move still has PP. Without one, Torchic can't win a fight.
+export const canAttack = (mon: Mon) => mon.moves.some((m) => m.power > 0 && m.pp > 0)
+
 export type BagItem = { id: number; name: string; quantity: number }
 
 // Items pocket: 30 × {u16 itemId; u16 quantity ^ low 16 bits of the encryption key}.

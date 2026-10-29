@@ -152,7 +152,8 @@ async function decide(state: GameState, facts: Facts, map: string | null): Promi
   const frame = saveFrame(step, state.screenshot)
   const image = await upscaleFrame(readFileSync(frame))
 
-  if (state.inBattle && facts.choosingMove && facts.player && facts.foe) {
+  // Jev chooses among moves with PP left; with none (Struggle), there's nothing to choose.
+  if (state.inBattle && facts.choosingMove && facts.player && facts.foe && facts.player.moves.some((m) => m.pp > 0)) {
     const { move, call } = await chooseMove(image, facts.player, facts.foe)
     console.log(`         Jev picks ${move ?? '(unsure)'} against ${facts.foe.name} (${facts.foe.types.join('/')})`)
     return { action: decideMove(state, facts, move), calls: [call], frame }

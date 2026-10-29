@@ -1,6 +1,6 @@
 import { storyProgress, type Goal } from './goals.ts'
 import type { ScreenRead } from './jev.ts'
-import { ITEM_POTION, martStock, type Facts } from './memory.ts'
+import { canAttack, ITEM_POTION, martStock, type Facts } from './memory.ts'
 import type { Pos } from './nav.ts'
 import { isLowHp, noteTalk, potionsToBuy, serviceGoal } from './services.ts'
 import type { Session } from './session.ts'
@@ -50,10 +50,17 @@ function gridPresses(from: number, to: number): Press[] {
 
 const FIGHT = 0
 const BAG = 1
+const RUN = 3
+const BATTLE_TYPE_TRAINER = 1 << 3
 
-// The action menu (FIGHT / BAG / POKéMON / RUN). Never RUN.
+// The action menu (FIGHT / BAG / POKéMON / RUN). RUN only from a wild battle with no PP left in
+// any attacking move (trainer battles can't be run from: there it fights on, with Struggle once
+// every move is empty).
 export function decideAction(s: GameState, f: Facts, session: Session): Action {
   const me = f.player
+  if (me && !canAttack(me) && !(s.battleFlags & BATTLE_TYPE_TRAINER)) {
+    return act('no PP left in any attacking move: RUN', ...gridPresses(f.actionCursor, RUN), press(['A'], 6, framesFor(s, SLOW_STEP_SECONDS)))
+  }
   if (me && isLowHp(me.hp, me.maxHp) && f.potions > 0) {
     session.intent = 'battle-potion'
     session.intentStartHp = me.hp

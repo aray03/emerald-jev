@@ -146,21 +146,31 @@ export class Navigator {
     return { map: cur.map, x: nx, y: ny }
   }
 
+  // How many presses it takes to walk from `from` to `to`, or null if there's no known way.
+  distance(from: Pos, to: Pos): number | null {
+    return same(from, to) ? 0 : (this.bfs(from, to)?.steps ?? null)
+  }
+
   private search(from: Pos, to: Pos): Dir | null {
+    return this.bfs(from, to)?.dir ?? null
+  }
+
+  private bfs(from: Pos, to: Pos): { dir: Dir; steps: number } | null {
     const firstDir = new Map<string, Dir>()
-    const seen = new Set([key(from)])
+    const depth = new Map([[key(from), 0]])
     const queue: Pos[] = [from]
     for (let i = 0; i < queue.length; i++) {
       const cur = queue[i]!
+      const d = depth.get(key(cur))! + 1
       for (const dir of DIRS) {
         const next = this.move(cur, dir, to)
         if (!next) continue
         const k = key(next)
-        if (seen.has(k)) continue
-        seen.add(k)
+        if (depth.has(k)) continue
+        depth.set(k, d)
         const via = i === 0 ? dir : firstDir.get(key(cur))!
         firstDir.set(k, via)
-        if (same(next, to)) return via
+        if (same(next, to)) return { dir: via, steps: d }
         queue.push(next)
       }
     }
