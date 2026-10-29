@@ -39,7 +39,7 @@ Jev is only called when the player can't walk freely. Walking uses memory alone.
    npm run dev        # normal run: Jev reads the screen, the bot presses buttons
    npm run dry        # dry run: no Jev and no buttons; logs memory while you play by hand
    ```
-2. In another terminal, run `./play.sh`. To use a different ROM or BizHawk, set `ROM=...` or `BIZHAWK=...`. It runs this command::
+2. In another terminal, run `./play.sh`. To use a different ROM or BizHawk, set `ROM=...` or `BIZHAWK=...`. It runs this command:
    ```sh
    ~/.local/share/bizhawk/EmuHawkMono.sh \
      --url_get=http://127.0.0.1:3100/ \
