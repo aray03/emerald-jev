@@ -3,6 +3,7 @@ import path from 'node:path'
 import express from 'express'
 import { readScreen, upscaleFrame } from './jev.ts'
 import { logPath, logStep, RUNS_DIR, saveFrame } from './log.ts'
+import { decodeFacts, type Facts } from './memory.ts'
 import { Navigator } from './nav.ts'
 import { decideFromScreen, decideOnFoot, isDone, needsScreen } from './policy.ts'
 import { screenQuestions } from './questions.ts'
@@ -76,7 +77,12 @@ app.post('/step', express.urlencoded({ extended: false, limit: '1mb' }), async (
   if (DRY_RUN) {
     // Watch memory while playing by hand; press nothing.
     // Keep the frames Jev would have been asked about, to test the questions offline later.
-    console.log(`[dry ${step}]`, JSON.stringify({ ...state, screenshot: undefined }))
+    const facts = state.raw ? decodeFacts(state.raw, state.inBattle) : null
+    console.log(
+      `[dry ${step}] map ${state.mapGroup}/${state.mapNum} (${state.x},${state.y})` +
+        `${state.inBattle ? ' BATTLE' : ''}${state.controlsLocked ? ' locked' : ''}${state.overworld ? '' : ' menu'}`,
+    )
+    if (facts) console.log(`         ${describeFacts(facts)}`)
     let frame: string | undefined
     if (needsScreen(state)) {
       try {
@@ -85,7 +91,7 @@ app.post('/step', express.urlencoded({ extended: false, limit: '1mb' }), async (
         console.error(`[dry ${step}] couldn't copy the screenshot`, err)
       }
     }
-    logStep({ step, dryRun: true, state, frame })
+    logStep({ step, dryRun: true, state, frame, facts: facts && { ...facts, flag: undefined, variable: undefined } })
     res.send(waitReply(30))
     return
   }
@@ -122,6 +128,18 @@ app.post('/step', express.urlencoded({ extended: false, limit: '1mb' }), async (
     res.send(waitReply(60))
   }
 })
+
+// One line for a person watching a dry run: is memory being read right?
+function describeFacts(f: Facts): string {
+  const mon = (m: Facts['party0']) =>
+    m ? `${m.name} Lv${m.level} ${m.hp}/${m.maxHp}HP [${m.moves.map((x) => `${x.name} ${x.pp}pp`).join(', ')}]` : 'none'
+  const parts = [`party: ${mon(f.party0)}`, `potions: ${f.potions}`, `money: ¥${f.money}`]
+  if (f.player || f.foe) {
+    parts.push(`battle: ${mon(f.player)} vs ${f.foe ? `${f.foe.name} Lv${f.foe.level} ${f.foe.hp}/${f.foe.maxHp}HP (${f.foe.types.join('/')})` : '?'}`)
+    parts.push(`choosing: ${f.choosingAction ? `action (cursor ${f.actionCursor})` : f.choosingMove ? `move (cursor ${f.moveCursor})` : 'no'}`)
+  }
+  return parts.join(' | ')
+}
 
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`emerald-jev listening on http://127.0.0.1:${PORT}${DRY_RUN ? ' (dry run: no Jev, no buttons)' : ''}`)

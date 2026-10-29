@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "maps": "tsx scripts/build-maps.ts",
     "save": "tsx scripts/save.ts",
-    "states": "tsx scripts/states.ts"
+    "states": "tsx scripts/states.ts",
+    "data": "tsx scripts/build-data.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

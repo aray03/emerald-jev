@@ -1,5 +1,20 @@
 import { z } from 'zod'
 
+// Raw memory blocks (hex) and words, decoded by src/memory.ts.
+export const rawMemorySchema = z.object({
+  party0: z.string(),
+  battleMons: z.string(),
+  actionCursor: z.number().int(),
+  moveCursor: z.number().int(),
+  controllerFunc: z.number().int(),
+  encryptionKey: z.number().int(),
+  money: z.number().int(),
+  bagItems: z.string(),
+  flags: z.string(),
+  vars: z.string(),
+})
+export type RawMemory = z.infer<typeof rawMemorySchema>
+
 // What lua/emerald-jev.lua reads from memory and sends each step.
 export const gameStateSchema = z.object({
   frame: z.number().int(),
@@ -21,6 +36,7 @@ export const gameStateSchema = z.object({
     birchLabState: z.number().int(),
   }),
   screenshot: z.string(),
+  raw: rawMemorySchema.optional(),
 })
 export type GameState = z.infer<typeof gameStateSchema>
 

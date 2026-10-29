@@ -19,9 +19,21 @@ local ADDR = {
   battleTypeFlags = 0x02022FEC,
   battleOutcome = 0x0202433A,
   gameCode = 0x080000AC, -- 4 ASCII bytes in the ROM header
+  saveBlock2Ptr = 0x03005D90,
+  playerParty = 0x020244EC, -- party slot 0 (struct Pokemon, 100 bytes)
+  battleMons = 0x02024084, -- gBattleMons[0..1] (struct BattlePokemon, 0x58 each)
+  actionCursor = 0x020244AC, -- gActionSelectionCursor[0]
+  moveCursor = 0x020244B0, -- gMoveSelectionCursor[0]
+  controllerFunc = 0x03005D60, -- gBattlerControllerFuncs[0]
 }
 local CB2_OVERWORLD = 0x08085E5C
 local SB1_VARS = 0x139C -- u16 vars[] inside SaveBlock1, indexed by (id - 0x4000)
+-- Raw blocks sent as hex; src/memory.ts decodes them. Offsets inside SaveBlock1/2.
+local SB1_MONEY = 0x490
+local SB1_BAG_ITEMS, BAG_ITEMS_LEN = 0x560, 30 * 4
+local SB1_FLAGS, FLAGS_LEN = 0x1270, 0x12C
+local VARS_LEN = 0x200 -- vars 0x4000-0x40FF
+local SB2_ENCRYPTION_KEY = 0xAC
 local VAR = {
   introState = 0x4092, -- VAR_LITTLEROOT_INTRO_STATE
   townState = 0x4050, -- VAR_LITTLEROOT_TOWN_STATE
@@ -43,8 +55,16 @@ end
 
 local function bool(b) return b and "true" or "false" end
 
+local function hex(addr, len)
+  local bytes = memory.read_bytes_as_array(addr, len, BUS)
+  local out = {}
+  for i = 1, #bytes do out[i] = string.format("%02x", bytes[i]) end
+  return table.concat(out)
+end
+
 local function readState()
   local sb1 = u32(ADDR.saveBlock1Ptr)
+  local sb2 = u32(ADDR.saveBlock2Ptr)
   local cb2 = u32(ADDR.mainCallback2)
   local function var(id) return u16(sb1 + SB1_VARS + 2 * (id - 0x4000)) end
 
@@ -52,7 +72,9 @@ local function readState()
   return string.format(
     '{"frame":%d,"speedPercent":%d,"gameCode":"%s","mapGroup":%d,"mapNum":%d,"x":%d,"y":%d,' ..
       '"inBattle":%s,"controlsLocked":%s,"overworld":%s,"battleFlags":%d,"battleOutcome":%d,' ..
-      '"vars":{"introState":%d,"townState":%d,"route101State":%d,"birchLabState":%d},"screenshot":"%s"}',
+      '"vars":{"introState":%d,"townState":%d,"route101State":%d,"birchLabState":%d},"screenshot":"%s",' ..
+      '"raw":{"party0":"%s","battleMons":"%s","actionCursor":%d,"moveCursor":%d,"controllerFunc":%d,' ..
+      '"encryptionKey":%d,"money":%d,"bagItems":"%s","flags":"%s","vars":"%s"}}',
     emu.framecount(),
     SPEED_PERCENT,
     readGameCode(),
@@ -69,7 +91,17 @@ local function readState()
     var(VAR.townState),
     var(VAR.route101State),
     var(VAR.birchLabState),
-    SCREENSHOT
+    SCREENSHOT,
+    hex(ADDR.playerParty, 100),
+    hex(ADDR.battleMons, 2 * 0x58),
+    u8(ADDR.actionCursor),
+    u8(ADDR.moveCursor),
+    u32(ADDR.controllerFunc),
+    u32(sb2 + SB2_ENCRYPTION_KEY),
+    u32(sb1 + SB1_MONEY),
+    hex(sb1 + SB1_BAG_ITEMS, BAG_ITEMS_LEN),
+    hex(sb1 + SB1_FLAGS, FLAGS_LEN),
+    hex(sb1 + SB1_VARS, VARS_LEN)
   )
 end
 
