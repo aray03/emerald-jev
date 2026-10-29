@@ -75,7 +75,9 @@ export function goalFor(s: GameState): Goal | null {
       return { name: 'go downstairs', to: { x: 7, y: 1 } }
     case 'littleroot':
       if (townState === 0) return { name: "visit the rival's house", to: { x: 14, y: 9 }, push: 'Up' }
-      return { name: 'head north to Route 101', to: { x: 11, y: 1 }, push: 'Up' }
+      // y=0 is the top row; pushing Up from there crosses onto Route 101. The walk passes (11,1),
+      // where the girl's "go see what's happening" scene triggers.
+      return { name: 'head north to Route 101', to: { x: 11, y: 0 }, push: 'Up' }
     case 'may1F':
       if (townState === 0) return { name: "go up to the rival's room", to: { x: 2, y: 2 } }
       return { name: "leave the rival's house", to: { x: 2, y: 8 }, push: 'Down' }
