@@ -25,7 +25,6 @@ export type ScreenRead = {
   asksNickname: Status
   asksSwitch: Status
   asksDeleteMove: Status
-  learningDoubleKick: Status
 }
 
 // Every call is logged with exactly what was sent and what came back.
@@ -77,7 +76,6 @@ export async function readScreen(frame: Buffer, place: string): Promise<{ read: 
       asksNickname: statusFor(answers.asks_nickname.noul),
       asksSwitch: statusFor(answers.asks_switch_pokemon.noul),
       asksDeleteMove: statusFor(answers.asks_delete_move.noul),
-      learningDoubleKick: statusFor(answers.learning_double_kick.noul),
     },
     call,
   }

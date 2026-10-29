@@ -12,6 +12,7 @@ export const rawMemorySchema = z.object({
   bagItems: z.string(),
   flags: z.string(),
   vars: z.string(),
+  moveToLearn: z.number().int().default(0),
 })
 export type RawMemory = z.infer<typeof rawMemorySchema>
 

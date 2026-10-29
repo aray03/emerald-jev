@@ -57,10 +57,6 @@ export const screenQuestions = {
     true: 'The message asks something like "Delete a move to make room for DOUBLE KICK?"',
     false: 'The message is about anything else, or there is no message',
   }),
-  learning_double_kick: noul('Does the text in `screen` say a Pokémon is trying to learn DOUBLE KICK?', {
-    true: 'The message names the move DOUBLE KICK as the one being learned',
-    false: 'The message names a different move, or no move at all',
-  }),
 }
 
 // Asked when the game is waiting for a move choice. One option per move with PP left, named by

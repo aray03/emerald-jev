@@ -86,7 +86,8 @@ Code applies the rules:
 - **Healing and shopping:** the first time in Oldale, Petalburg and Rustboro, heal at the Pokémon Center, then buy Potions up to **6**.
 - **Potions:** below **1/3 HP**, use a Potion in battle or out. With none left, go to the **nearest** Center by walking distance.
 - **Out of PP** in every attacking move: go to the nearest Center to restore it. In a wild battle it **runs**; a trainer battle can't be run from, so there it fights on.
-- **Training:** train in Route 104's grass until Torchic reaches **level 16**, then face Roxanne.
+- **Training:** train in **Rusturf Tunnel** (Whismur only, Lv 5–8, east of Rustboro along Route 116) until Torchic reaches **level 16**, then face Roxanne.
+- **New moves:** with no free slot, a damaging move replaces one that does no damage (Double Kick replaces Growl, Peck replaces Focus Energy). Moves that do no damage are turned down. The move on offer is read from memory (`gMoveToLearn`).
 - **Battles:** never run, except from a wild battle when out of PP.
 - **Save states:** saved automatically as each story step is done (`states/01-got-starter.State`, and so on).
 

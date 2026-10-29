@@ -1,6 +1,6 @@
 import { storyProgress, type Goal } from './goals.ts'
 import type { ScreenRead } from './jev.ts'
-import { canAttack, ITEM_POTION, martStock, type Facts } from './memory.ts'
+import { canAttack, ITEM_POTION, martStock, type Facts, type Mon, type Move } from './memory.ts'
 import type { Pos } from './nav.ts'
 import { isLowHp, noteTalk, potionsToBuy, serviceGoal } from './services.ts'
 import type { Session } from './session.ts'
@@ -88,21 +88,26 @@ export function decideFromScreen(s: GameState, f: Facts | null, map: string | nu
   const step = framesFor(s, SCREEN_STEP_SECONDS)
   const slow = framesFor(s, SLOW_STEP_SECONDS)
 
-  // Never press B on the evolution screen: holding B cancels evolving into Combusken.
-  if (r.kind === 'evolution') return r.textBox === 'yes' ? act('advance the evolution text', press(['A'], 6, step)) : wait('evolving', slow)
-
   // An errand is finished once HP has gone up: back out of whatever menu is open.
   const mon = s.inBattle ? f?.player : f?.party0
   if (session.intent && mon && mon.hp > session.intentStartHp) session.intent = null
 
-  // Prompts where the answer isn't simply YES.
+  // Prompts where the answer isn't simply YES. These come before the evolution rule because
+  // a just-evolved Pokémon can ask to learn a move on the evolution screen.
   if (r.asksSwitch === 'yes') return act('keep the same Pokémon in battle', press(['B'], 6, step))
   if (r.asksDeleteMove === 'yes') {
-    if (r.learningDoubleKick === 'unclear') return wait('unsure which move is being learned', slow)
-    return r.learningDoubleKick === 'yes'
-      ? act('make room for DOUBLE KICK', press(['A'], 6, step))
-      : act('skip learning this move', press(['B'], 6, step))
+    // Memory says which move is being learned: swap out a move that does no damage for a
+    // damaging one, and turn down anything else.
+    const learning = f?.moveToLearn
+    if (!learning || !f?.party0) return wait('reading which move is being learned', slow)
+    return replaceableMove(f.party0, learning)
+      ? act(`make room for ${learning.name}`, press(['A'], 6, step))
+      : act(`skip learning ${learning.name}`, press(['B'], 6, step))
   }
+
+  // Never press B on the evolution screen: holding B cancels evolving into Combusken.
+  if (r.kind === 'evolution') return r.textBox === 'yes' ? act('advance the evolution text', press(['A'], 6, step)) : wait('evolving', slow)
+
   // The nickname question is the one YES/NO we answer NO, and it only comes up in Birch's lab.
   // Outside the lab, ignore Jev's nickname answer: confirming the player's own name ("So it's
   // MAY?") reads as name-related and can come back unclear.
@@ -166,16 +171,20 @@ export function decideFromScreen(s: GameState, f: Facts | null, map: string | nu
       // Torchic is the first (and only) Pokémon.
       return session.intent ? act('give the Potion to the first Pokémon', press(['A'], 6, step)) : act('leave the party menu', press(['B'], 6, step))
 
-    case 'move_forget':
-      if (!f?.party0) return wait('reading the moves', slow)
+    case 'move_forget': {
+      const learning = f?.moveToLearn
+      const forget = f?.party0 && learning ? replaceableMove(f.party0, learning) : null
+      // Nothing to swap out (shouldn't happen after answering YES): B backs out, which declines.
+      if (!f?.party0 || !learning || !forget) return act('keep the current moves', press(['B'], 6, step))
       return {
         kind: 'highlight',
         menu: 'list of moves to forget',
-        options: [...f.party0.moves.map((m) => m.name), 'DOUBLE KICK'],
-        want: 'GROWL',
+        options: [...f.party0.moves.map((m) => m.name), learning.name],
+        want: forget.name,
         then: [press(['A'], 6, step)],
-        reason: 'forget GROWL for DOUBLE KICK',
+        reason: `forget ${forget.name} for ${learning.name}`,
       }
+    }
 
     case 'mart_menu':
       return f && potionsToBuy(f) > 0 && !session.boughtThisVisit
@@ -210,6 +219,13 @@ export function decideFromScreen(s: GameState, f: Facts | null, map: string | nu
     case 'unclear':
       return r.textBox === 'yes' ? act('advance the text', press(['A'], 6, step)) : wait('unsure what screen this is', slow)
   }
+}
+
+// When a move is offered with no free slot: the move to forget for it, or null to turn it down.
+// Only damaging moves are worth learning, and only moves that do no damage get forgotten.
+export function replaceableMove(mon: Mon, learning: Move): Move | null {
+  if (learning.power === 0) return null
+  return mon.moves.find((m) => m.power === 0) ?? null
 }
 
 // START menu entries in order (src/start_menu.c). Which ones exist depends on story flags.

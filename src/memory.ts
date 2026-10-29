@@ -135,6 +135,7 @@ export type Facts = {
   bag: BagItem[]
   potions: number
   money: number
+  moveToLearn: Move | null // the move a Pokémon is being offered (gMoveToLearn)
   flag: (id: number) => boolean
   variable: (id: number) => number
 }
@@ -154,6 +155,7 @@ export function decodeFacts(raw: RawMemory, inBattle: boolean): Facts {
     bag,
     potions: bag.filter((i) => i.id === ITEM_POTION).reduce((n, i) => n + i.quantity, 0),
     money: decodeMoney(raw.money, raw.encryptionKey),
+    moveToLearn: raw.moveToLearn ? move(raw.moveToLearn, DATA.moves[raw.moveToLearn]?.pp ?? 0) : null,
     flag: (id) => ((flags[id >> 3] ?? 0) >> (id & 7)) & 1 ? true : false,
     variable: (id) => (2 * (id - 0x4000) + 1 < vars.length ? vars.readUInt16LE(2 * (id - 0x4000)) : 0),
   }

@@ -1,5 +1,5 @@
 import type { Facts } from './memory.ts'
-import { MAPS, type Pos } from './nav.ts'
+import type { Pos } from './nav.ts'
 import type { Dir } from './schemas.ts'
 
 // Story goals for a male player (Brendan) from New Game to the first badge, as an ordered list.
@@ -31,9 +31,11 @@ export const VAR = {
 
 const at = (map: string, x: number, y: number): Pos => ({ map, x, y })
 
-// Train in Route 104's north grass, the closest grass to Rustboro's Pokémon Center.
+// Train in Rusturf Tunnel (east of Rustboro along Route 116), where every wild Pokémon is a
+// Whismur (Lv 5-8). In caves they appear on any floor tile, so pace just inside the west
+// entrance, before the rocks that need Rock Smash. Rustboro's Pokémon Center is the nearest.
 export const TRAINING_LEVEL = 16
-const TRAINING_GRASS = grassPair('Route104', (t) => t.y < 30)
+const TRAINING_SPOT: [Pos, Pos] = [at('RusturfTunnel', 4, 8), at('RusturfTunnel', 5, 8)]
 
 // `checkpoint` names the save state made the moment this step is done.
 type Step = { done: (f: Facts) => boolean; goal: (f: Facts, pos: Pos) => Goal; checkpoint?: string }
@@ -95,9 +97,9 @@ const STEPS: Step[] = [
   {
     done: (f) => (f.party0?.level ?? 0) >= TRAINING_LEVEL,
     goal: (_f, pos) => ({
-      name: `train to level ${TRAINING_LEVEL} in the grass`,
+      name: `train to level ${TRAINING_LEVEL} in Rusturf Tunnel`,
       // Pace between two grass tiles.
-      to: pos.map === 'Route104' && pos.x === TRAINING_GRASS[0].x && pos.y === TRAINING_GRASS[0].y ? TRAINING_GRASS[1] : TRAINING_GRASS[0],
+      to: pos.map === TRAINING_SPOT[0].map && pos.x === TRAINING_SPOT[0].x && pos.y === TRAINING_SPOT[0].y ? TRAINING_SPOT[1] : TRAINING_SPOT[0],
     }),
     checkpoint: '06-level-16',
   },
@@ -122,14 +124,3 @@ export function checkpointsBetween(from: number, to: number): string[] {
 }
 
 export const hasFirstBadge = (f: Facts) => f.flag(FLAG.BADGE01_GET)
-
-// Two side-by-side grass tiles in `map`, picking the first pair that matches `where`.
-function grassPair(map: string, where: (t: { x: number; y: number }) => boolean): [Pos, Pos] {
-  const m = MAPS[map]!
-  for (let y = 0; y < m.h; y++) {
-    for (let x = 0; x + 1 < m.w; x++) {
-      if (m.rows[y]![x] === 'g' && m.rows[y]![x + 1] === 'g' && where({ x, y })) return [at(map, x, y), at(map, x + 1, y)]
-    }
-  }
-  throw new Error(`no grass pair in ${map}`)
-}

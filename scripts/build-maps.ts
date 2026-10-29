@@ -38,6 +38,8 @@ const MAPS = [
   'RustboroCity_Gym',
   'RustboroCity_PokemonCenter_1F',
   'RustboroCity_Mart',
+  'Route116',
+  'RusturfTunnel',
 ]
 
 const NUM_METATILES_IN_PRIMARY = 512 // include/fieldmap.h

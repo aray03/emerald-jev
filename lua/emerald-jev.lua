@@ -25,6 +25,7 @@ local ADDR = {
   actionCursor = 0x020244AC, -- gActionSelectionCursor[0]
   moveCursor = 0x020244B0, -- gMoveSelectionCursor[0]
   controllerFunc = 0x03005D60, -- gBattlerControllerFuncs[0]
+  moveToLearn = 0x020244E2, -- gMoveToLearn (u16), set while a move is being offered
 }
 local CB2_OVERWORLD = 0x08085E5C
 local SB1_VARS = 0x139C -- u16 vars[] inside SaveBlock1, indexed by (id - 0x4000)
@@ -74,7 +75,7 @@ local function readState()
       '"inBattle":%s,"controlsLocked":%s,"overworld":%s,"battleFlags":%d,"battleOutcome":%d,' ..
       '"vars":{"introState":%d,"townState":%d,"route101State":%d,"birchLabState":%d},"screenshot":"%s",' ..
       '"raw":{"party0":"%s","battleMons":"%s","actionCursor":%d,"moveCursor":%d,"controllerFunc":%d,' ..
-      '"encryptionKey":%d,"money":%d,"bagItems":"%s","flags":"%s","vars":"%s"}}',
+      '"encryptionKey":%d,"money":%d,"bagItems":"%s","flags":"%s","vars":"%s","moveToLearn":%d}}',
     emu.framecount(),
     SPEED_PERCENT,
     readGameCode(),
@@ -101,7 +102,8 @@ local function readState()
     u32(sb1 + SB1_MONEY),
     hex(sb1 + SB1_BAG_ITEMS, BAG_ITEMS_LEN),
     hex(sb1 + SB1_FLAGS, FLAGS_LEN),
-    hex(sb1 + SB1_VARS, VARS_LEN)
+    hex(sb1 + SB1_VARS, VARS_LEN),
+    u16(ADDR.moveToLearn)
   )
 end
 
