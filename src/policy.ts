@@ -23,10 +23,16 @@ export function isDone(s: GameState) {
 export function decideFromScreen(s: GameState, r: ScreenRead): Action {
   if (s.inBattle) return decideBattle(s, r)
 
+  // The nickname question is the one YES/NO we answer NO, and it only comes up in Birch's lab.
+  // Outside the lab, ignore Jev's nickname answer: confirming the player's own name ("So it's
+  // MAY?") reads as name-related and can come back unclear.
+  // B is safe whether or not the box is up yet: it picks NO, or just advances the text.
+  const inLab = mapName(s) === 'lab'
+  if (inLab && r.asksNickname === 'yes') return act('decline the nickname', press(['B']))
+
   if (r.yesNo === 'unclear') return wait('unsure whether a YES/NO box is open')
   if (r.yesNo === 'yes') {
-    if (r.asksNickname === 'unclear') return wait('unsure whether this asks for a nickname')
-    if (r.asksNickname === 'yes') return act('decline the nickname', press(['B']))
+    if (inLab && r.asksNickname === 'unclear') return wait('unsure whether this asks for a nickname')
     if (r.cursorOnYes === 'unclear') return wait('unsure where the YES/NO arrow is')
     if (r.cursorOnYes === 'no') return act('move the arrow to YES', press(['Up'], 4, 10))
     return act('answer YES', press(['A'], 6, 30))
@@ -45,6 +51,8 @@ export function decideFromScreen(s: GameState, r: ScreenRead): Action {
     case 'other_menu':
       return act('accept the default menu option', press(['A'], 6, 30))
     case 'overworld':
+      // Memory knows whether the game is in its overworld; the intro's scenery can look like one.
+      if (!s.overworld) return act('advance the title or intro', press(['A'], 6, 30))
       if (r.textBox === 'yes') return act('advance the dialogue', press(['A'], 6, 20))
       if (r.textBox === 'unclear') return wait('unsure whether text is showing')
       return wait('a cutscene is moving the player', 45)
