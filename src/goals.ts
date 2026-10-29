@@ -1,82 +1,135 @@
-import type { Dir, GameState } from './schemas.ts'
+import type { Facts } from './memory.ts'
+import { MAPS, type Pos } from './nav.ts'
+import type { Dir } from './schemas.ts'
 
-// Story goals for a male player (Brendan), from pret/pokeemerald map data.
-// Coordinates are map tiles, matching data/maps/*/map.json.
+// Story goals for a male player (Brendan) from New Game to the first badge, as an ordered list.
+// The first step that isn't done gives the goal. Coordinates are map tiles from pokeemerald's
+// data/maps/*/map.json; flag and variable ids from include/constants/{flags,vars}.h.
 
-export type Tile = { x: number; y: number }
+// Walk to `to`, then either press `push` (through a door, exit mat or edge with no warp data)
+// or turn to `face` and press A (talk to someone, use something). With neither, arriving is enough.
+export type Goal = { name: string; to: Pos; push?: Dir; face?: Dir }
 
-// Walk to `to`, then either press `push` (to go through a door or off the map edge)
-// or turn to `face` and press A (to interact with something).
-export type Goal = { name: string; to: Tile; push?: Dir; face?: Dir }
+export const FLAG = {
+  DEFEATED_RIVAL_ROUTE103: 0x82,
+  RECEIVED_POTION_OLDALE: 0x84,
+  ADVENTURE_STARTED: 0x74, // received the Pokédex
+  SYS_POKEMON_GET: 0x860,
+  SYS_POKEDEX_GET: 0x861,
+  SYS_POKENAV_GET: 0x862,
+  BADGE01_GET: 0x867,
+} as const
 
-export const MAP = {
-  truck: [25, 40],
-  littleroot: [0, 9],
-  oldale: [0, 10],
-  route101: [0, 16],
-  brendan1F: [1, 0],
-  brendan2F: [1, 1],
-  may1F: [1, 2],
-  may2F: [1, 3],
-  lab: [1, 4],
-} as const satisfies Record<string, readonly [number, number]>
+export const VAR = {
+  LITTLEROOT_TOWN_STATE: 0x4050, // 1 met rival, 2 saving Birch, 3 got Pokédex, 4 got Running Shoes
+  PETALBURG_CITY_STATE: 0x4057,
+  BIRCH_LAB_STATE: 0x4084, // 3 got starter, 4 beat rival on Route 103, 5 got Pokédex
+  PETALBURG_GYM_STATE: 0x4085, // 0 not met Norman, 1 met Norman, 2 Wally's tutorial done
+  LITTLEROOT_INTRO_STATE: 0x4092, // 4 told to set clock, 6 clock set, 7 told to meet rival
+  PETALBURG_WOODS_STATE: 0x4098, // 1 beat the Team Aqua grunt
+} as const
 
-export type MapName = keyof typeof MAP
+const at = (map: string, x: number, y: number): Pos => ({ map, x, y })
 
-// Doors and stairs (warp_events in each map.json). Stepping onto one changes the map, so
-// pathfinding must never walk across one unless it's the goal.
-export const WARPS: Record<MapName, Tile[]> = {
-  truck: [{ x: 4, y: 1 }, { x: 4, y: 2 }, { x: 4, y: 3 }],
-  littleroot: [{ x: 14, y: 8 }, { x: 5, y: 8 }, { x: 7, y: 16 }],
-  oldale: [{ x: 5, y: 7 }, { x: 15, y: 16 }, { x: 6, y: 16 }, { x: 14, y: 6 }],
-  route101: [],
-  brendan1F: [{ x: 9, y: 8 }, { x: 8, y: 8 }, { x: 8, y: 2 }],
-  brendan2F: [{ x: 7, y: 1 }],
-  may1F: [{ x: 1, y: 8 }, { x: 2, y: 8 }, { x: 2, y: 2 }],
-  may2F: [{ x: 1, y: 1 }],
-  lab: [{ x: 6, y: 12 }, { x: 7, y: 12 }],
+// Train in Route 104's north grass, the closest grass to Rustboro's Pokémon Center.
+export const TRAINING_LEVEL = 16
+const TRAINING_GRASS = grassPair('Route104', (t) => t.y < 30)
+
+// `checkpoint` names the save state made the moment this step is done.
+type Step = { done: (f: Facts) => boolean; goal: (f: Facts, pos: Pos) => Goal; checkpoint?: string }
+
+const STEPS: Step[] = [
+  {
+    done: (f) => f.variable(VAR.LITTLEROOT_INTRO_STATE) >= 3,
+    goal: () => ({ name: 'leave the truck', to: at('InsideOfTruck', 4, 2), push: 'Right' }),
+  },
+  {
+    done: (f) => f.variable(VAR.LITTLEROOT_INTRO_STATE) >= 6,
+    goal: () => ({ name: 'set the wall clock', to: at('LittlerootTown_BrendansHouse_2F', 5, 2), face: 'Up' }),
+  },
+  {
+    done: (f) => f.variable(VAR.LITTLEROOT_TOWN_STATE) >= 1,
+    goal: () => ({ name: "check the rival's Poké Ball", to: at('LittlerootTown_MaysHouse_2F', 5, 5), face: 'Up' }),
+  },
+  {
+    // The girl at the north exit sends you to help Birch when you step on (11,1).
+    done: (f) => f.variable(VAR.LITTLEROOT_TOWN_STATE) >= 2,
+    goal: () => ({ name: 'head for Route 101', to: at('LittlerootTown', 11, 1) }),
+  },
+  {
+    done: (f) => f.variable(VAR.BIRCH_LAB_STATE) >= 3,
+    goal: () => ({ name: "open Birch's bag", to: at('Route101', 7, 15), face: 'Up' }),
+    checkpoint: '01-got-starter',
+  },
+  {
+    done: (f) => f.flag(FLAG.RECEIVED_POTION_OLDALE),
+    goal: () => ({ name: 'get the free Potion in Oldale', to: at('OldaleTown', 13, 15), face: 'Up' }),
+  },
+  {
+    done: (f) => f.flag(FLAG.DEFEATED_RIVAL_ROUTE103) || f.variable(VAR.BIRCH_LAB_STATE) >= 4,
+    goal: () => ({ name: 'battle the rival on Route 103', to: at('Route103', 10, 4), face: 'Up' }),
+    checkpoint: '02-beat-rival',
+  },
+  {
+    // Walking into the lab starts the Pokédex scene on its own.
+    done: (f) => f.flag(FLAG.ADVENTURE_STARTED),
+    goal: () => ({ name: 'get the Pokédex in the lab', to: at('LittlerootTown_ProfessorBirchsLab', 6, 11) }),
+    checkpoint: '03-got-pokedex',
+  },
+  {
+    done: (f) => f.variable(VAR.PETALBURG_GYM_STATE) >= 1,
+    goal: () => ({ name: 'talk to Dad in the Petalburg Gym', to: at('PetalburgCity_Gym', 4, 108), face: 'Up' }),
+  },
+  {
+    // Wally's catching lesson plays out as a cutscene after talking to Dad.
+    done: (f) => f.variable(VAR.PETALBURG_GYM_STATE) >= 2,
+    goal: () => ({ name: "watch Wally's catching lesson", to: at('PetalburgCity_Gym', 4, 108) }),
+    checkpoint: '04-after-wally',
+  },
+  {
+    // Stepping here starts the Team Aqua grunt battle, the only way through the woods.
+    done: (f) => f.variable(VAR.PETALBURG_WOODS_STATE) >= 1,
+    goal: () => ({ name: 'get through Petalburg Woods', to: at('PetalburgWoods', 26, 23) }),
+    checkpoint: '05-beat-aqua-grunt',
+  },
+  {
+    done: (f) => (f.party0?.level ?? 0) >= TRAINING_LEVEL,
+    goal: (_f, pos) => ({
+      name: `train to level ${TRAINING_LEVEL} in the grass`,
+      // Pace between two grass tiles.
+      to: pos.map === 'Route104' && pos.x === TRAINING_GRASS[0].x && pos.y === TRAINING_GRASS[0].y ? TRAINING_GRASS[1] : TRAINING_GRASS[0],
+    }),
+    checkpoint: '06-level-16',
+  },
+  {
+    done: (f) => f.flag(FLAG.BADGE01_GET),
+    goal: () => ({ name: 'challenge Roxanne', to: at('RustboroCity_Gym', 5, 3), face: 'Up' }),
+    checkpoint: '07-first-badge',
+  },
+]
+
+// How far through the story we are: the index of the first step not done (STEPS.length when
+// the badge is won) and that step's goal.
+export function storyProgress(f: Facts, pos: Pos): { index: number; goal: Goal | null } {
+  const index = STEPS.findIndex((s) => !s.done(f))
+  if (index === -1) return { index: STEPS.length, goal: null }
+  return { index, goal: STEPS[index]!.goal(f, pos) }
 }
 
-export function mapName(s: GameState): MapName | null {
-  for (const [name, [g, n]] of Object.entries(MAP)) {
-    if (s.mapGroup === g && s.mapNum === n) return name as MapName
-  }
-  return null
+// Save-state names for the steps finished between two progress indexes.
+export function checkpointsBetween(from: number, to: number): string[] {
+  return STEPS.slice(Math.max(0, from), to).flatMap((s) => (s.checkpoint ? [s.checkpoint] : []))
 }
 
-// VAR_LITTLEROOT_INTRO_STATE: 4 told to set clock, 6 clock set, 7 told to meet rival.
-// VAR_LITTLEROOT_TOWN_STATE: 1 met rival, 2 saving Birch, 3 received Pokédex.
-// VAR_BIRCH_LAB_STATE: 3 or more once Birch has given the starter and released the player.
-export function goalFor(s: GameState): Goal | null {
-  const { introState, townState, birchLabState } = s.vars
-  const hasStarter = birchLabState >= 3
+export const hasFirstBadge = (f: Facts) => f.flag(FLAG.BADGE01_GET)
 
-  switch (mapName(s)) {
-    case 'truck':
-      return { name: 'leave the truck', to: { x: 4, y: 2 }, push: 'Right' }
-    case 'brendan1F':
-      if (introState <= 5) return { name: 'go upstairs to set the clock', to: { x: 8, y: 2 } }
-      return { name: 'leave the house', to: { x: 8, y: 8 }, push: 'Down' }
-    case 'brendan2F':
-      if (introState < 6) return { name: 'set the wall clock', to: { x: 5, y: 2 }, face: 'Up' }
-      return { name: 'go downstairs', to: { x: 7, y: 1 } }
-    case 'littleroot':
-      if (townState === 0) return { name: "visit the rival's house", to: { x: 14, y: 9 }, push: 'Up' }
-      // y=0 is the top row; pushing Up from there crosses onto Route 101. The walk passes (11,1),
-      // where the girl's "go see what's happening" scene triggers.
-      return { name: 'head north to Route 101', to: { x: 11, y: 0 }, push: 'Up' }
-    case 'may1F':
-      if (townState === 0) return { name: "go up to the rival's room", to: { x: 2, y: 2 } }
-      return { name: "leave the rival's house", to: { x: 2, y: 8 }, push: 'Down' }
-    case 'may2F':
-      if (townState === 0) return { name: "check the rival's Poké Ball", to: { x: 5, y: 5 }, face: 'Up' }
-      return { name: 'go downstairs', to: { x: 1, y: 1 } }
-    case 'route101':
-      if (!hasStarter) return { name: "open Birch's bag", to: { x: 7, y: 15 }, face: 'Up' }
-      return { name: 'head north to Oldale Town', to: { x: 11, y: 0 }, push: 'Up' }
-    case 'lab':
-      return { name: 'leave the lab', to: { x: 6, y: 12 }, push: 'Down' }
-    default:
-      return null
+// Two side-by-side grass tiles in `map`, picking the first pair that matches `where`.
+function grassPair(map: string, where: (t: { x: number; y: number }) => boolean): [Pos, Pos] {
+  const m = MAPS[map]!
+  for (let y = 0; y < m.h; y++) {
+    for (let x = 0; x + 1 < m.w; x++) {
+      if (m.rows[y]![x] === 'g' && m.rows[y]![x + 1] === 'g' && where({ x, y })) return [at(map, x, y), at(map, x + 1, y)]
+    }
   }
+  throw new Error(`no grass pair in ${map}`)
 }

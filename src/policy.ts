@@ -1,24 +1,14 @@
-import { goalFor, mapName } from './goals.ts'
+import { storyProgress, type Goal } from './goals.ts'
 import type { ScreenRead } from './jev.ts'
-import { Navigator } from './nav.ts'
+import { ITEM_POTION, type Facts } from './memory.ts'
+import type { Pos } from './nav.ts'
+import { isLowHp, noteTalk, potionsToBuy, serviceGoal } from './services.ts'
+import type { Session } from './session.ts'
 import type { Action, Button, Dir, GameState, Press } from './schemas.ts'
 
-// Decision rules: memory state plus Jev's screen answers -> buttons.
-// Memory decides whenever it can; Jev is only consulted when the player can't move freely.
-
-// Whether `pos` is already beyond `to` in direction `dir`.
-function isPast(pos: { x: number; y: number }, to: { x: number; y: number }, dir: Dir) {
-  switch (dir) {
-    case 'Up':
-      return pos.y < to.y
-    case 'Down':
-      return pos.y > to.y
-    case 'Left':
-      return pos.x < to.x
-    case 'Right':
-      return pos.x > to.x
-  }
-}
+// Decision rules. Memory gives facts, Jev reads the screen and judges moves; this file turns
+// both into buttons. The user's rules (never run, Potion below 1/3 HP, heal and shop in each
+// new town) live here and in services.ts.
 
 // Real time between screen checks. Button holds and walking stay in game frames, but these
 // gaps scale with emulator speed: at 400% speed, 0.25 s is 60 frames (1 s of game time).
@@ -33,22 +23,72 @@ const wait = (reason: string, frames = 30): Action => act(reason, press([], 1, f
 
 export const needsScreen = (s: GameState) => s.inBattle || s.controlsLocked || !s.overworld
 
-export function isDone(s: GameState) {
-  return mapName(s) === 'oldale' && !needsScreen(s)
+// A menu whose cursor has to be found before pressing: the server asks Jev which of `options`
+// is highlighted, then moves toward `want` (Up/Down through a vertical list) and presses `then`.
+export type Highlight = { kind: 'highlight'; menu: string; options: string[]; want: string; then: Press[]; reason: string }
+
+// ---------- Battle: what memory says the game is waiting for ----------
+
+// 2x2 menus (actions and moves): index bit 0 is the column, bit 1 the row.
+function gridPresses(from: number, to: number): Press[] {
+  const out: Press[] = []
+  if ((from & 2) !== (to & 2)) out.push(press([to & 2 ? 'Down' : 'Up'], 4, 8))
+  if ((from & 1) !== (to & 1)) out.push(press([to & 1 ? 'Right' : 'Left'], 4, 8))
+  return out
 }
 
-// The player is in a menu, battle, or cutscene: act on what Jev sees.
-export function decideFromScreen(s: GameState, r: ScreenRead): Action {
-  if (s.inBattle) return decideBattle(s, r)
+const FIGHT = 0
+const BAG = 1
 
+// The action menu (FIGHT / BAG / POKéMON / RUN). Never RUN.
+export function decideAction(s: GameState, f: Facts, session: Session): Action {
+  const me = f.player
+  if (me && isLowHp(me.hp, me.maxHp) && f.potions > 0) {
+    session.intent = 'battle-potion'
+    session.intentStartHp = me.hp
+    return act(`${me.name} is below 1/3 HP: open the BAG for a Potion`, ...gridPresses(f.actionCursor, BAG), press(['A'], 6, framesFor(s, SCREEN_STEP_SECONDS)))
+  }
+  return act('choose FIGHT', ...gridPresses(f.actionCursor, FIGHT), press(['A'], 6, framesFor(s, SCREEN_STEP_SECONDS)))
+}
+
+// The move menu, after Jev picked `moveName` from the moves memory says the Pokémon knows.
+export function decideMove(s: GameState, f: Facts, moveName: string | null): Action {
+  const moves = f.player?.moves ?? []
+  const fallback = moves.findIndex((m) => m.pp > 0 && m.power > 0)
+  const index = moveName ? moves.findIndex((m) => m.name === moveName) : -1
+  if (index === -1) {
+    // Jev wasn't clear: use the first damaging move with PP rather than stall the battle.
+    const i = Math.max(0, fallback)
+    return act(`Jev unsure; use ${moves[i]?.name ?? 'the first move'}`, ...gridPresses(f.moveCursor, i), press(['A'], 6, framesFor(s, SLOW_STEP_SECONDS)))
+  }
+  return act(`use ${moveName}`, ...gridPresses(f.moveCursor, index), press(['A'], 6, framesFor(s, SLOW_STEP_SECONDS)))
+}
+
+// ---------- Screens: menus, prompts, dialogue ----------
+
+export function decideFromScreen(s: GameState, f: Facts | null, map: string | null, r: ScreenRead, session: Session): Action | Highlight {
   const step = framesFor(s, SCREEN_STEP_SECONDS)
   const slow = framesFor(s, SLOW_STEP_SECONDS)
 
+  // Never press B on the evolution screen: holding B cancels evolving into Combusken.
+  if (r.kind === 'evolution') return r.textBox === 'yes' ? act('advance the evolution text', press(['A'], 6, step)) : wait('evolving', slow)
+
+  // An errand is finished once HP has gone up: back out of whatever menu is open.
+  const mon = s.inBattle ? f?.player : f?.party0
+  if (session.intent && mon && mon.hp > session.intentStartHp) session.intent = null
+
+  // Prompts where the answer isn't simply YES.
+  if (r.asksSwitch === 'yes') return act('keep the same Pokémon in battle', press(['B'], 6, step))
+  if (r.asksDeleteMove === 'yes') {
+    if (r.learningDoubleKick === 'unclear') return wait('unsure which move is being learned', slow)
+    return r.learningDoubleKick === 'yes'
+      ? act('make room for DOUBLE KICK', press(['A'], 6, step))
+      : act('skip learning this move', press(['B'], 6, step))
+  }
   // The nickname question is the one YES/NO we answer NO, and it only comes up in Birch's lab.
   // Outside the lab, ignore Jev's nickname answer: confirming the player's own name ("So it's
   // MAY?") reads as name-related and can come back unclear.
-  // B is safe whether or not the box is up yet: it picks NO, or just advances the text.
-  const inLab = mapName(s) === 'lab'
+  const inLab = map === 'LittlerootTown_ProfessorBirchsLab'
   if (inLab && r.asksNickname === 'yes') return act('decline the nickname', press(['B'], 6, step))
 
   if (r.yesNo === 'unclear') return wait('unsure whether a YES/NO box is open', slow)
@@ -68,57 +108,155 @@ export function decideFromScreen(s: GameState, r: ScreenRead): Action {
     case 'starter_bag':
       return act('pick the highlighted starter (Torchic)', press(['A'], 6, step))
     case 'title_or_intro':
-      return act('advance the title or intro', press(['A'], 6, step))
     case 'other_menu':
-      return act('accept the default menu option', press(['A'], 6, step))
+      return act('advance or accept the default option', press(['A'], 6, step))
+
+    case 'start_menu':
+      if (session.intent !== 'potion') return act('close the START menu', press(['B'], 6, step))
+      return { kind: 'highlight', menu: 'START menu', options: startMenuOptions(f), want: 'BAG', then: [press(['A'], 6, step)], reason: 'open the BAG' }
+
+    case 'bag':
+      if (!session.intent || !f) return act('close the bag', press(['B'], 6, step))
+      if (!f.bag.some((i) => i.id === ITEM_POTION)) {
+        session.intent = null
+        return act('no Potions left: close the bag', press(['B'], 6, step))
+      }
+      return {
+        kind: 'highlight',
+        menu: 'ITEMS pocket of the bag',
+        options: [...f.bag.map((i) => i.name), 'CANCEL'],
+        want: 'POTION',
+        then: [press(['A'], 6, step)],
+        reason: 'choose POTION',
+      }
+
+    case 'item_action_menu':
+      // USE is where the cursor starts.
+      return session.intent ? act('USE the Potion', press(['A'], 6, step)) : act('cancel', press(['B'], 6, step))
+
+    case 'party_menu':
+      // Torchic is the first (and only) Pokémon.
+      return session.intent ? act('give the Potion to the first Pokémon', press(['A'], 6, step)) : act('leave the party menu', press(['B'], 6, step))
+
+    case 'move_forget':
+      if (!f?.party0) return wait('reading the moves', slow)
+      return {
+        kind: 'highlight',
+        menu: 'list of moves to forget',
+        options: [...f.party0.moves.map((m) => m.name), 'DOUBLE KICK'],
+        want: 'GROWL',
+        then: [press(['A'], 6, step)],
+        reason: 'forget GROWL for DOUBLE KICK',
+      }
+
+    case 'mart_menu':
+      return f && potionsToBuy(f) > 0 && !session.boughtThisVisit
+        ? act('BUY', press(['A'], 6, step))
+        : act('QUIT the shop', press(['B'], 6, step))
+
+    case 'mart_list':
+      if (!f || session.boughtThisVisit || potionsToBuy(f) === 0) return act('leave the shop list', press(['B'], 6, step))
+      // The stock differs by town, so only POTION and "something else" need telling apart.
+      return { kind: 'highlight', menu: 'shop list', options: ['POTION', 'another item', 'CANCEL'], want: 'POTION', then: [press(['A'], 6, step)], reason: 'choose POTION' }
+
+    case 'mart_quantity': {
+      // The box starts at 1; each Up adds one.
+      const n = f ? Math.max(1, potionsToBuy(f)) : 1
+      session.boughtThisVisit = true
+      const ups = Array.from({ length: n - 1 }, () => press(['Up'], 3, 4))
+      return act(`buy ${n} Potion${n === 1 ? '' : 's'}`, ...ups, press(['A'], 6, step))
+    }
+
+    case 'battle':
     case 'overworld':
       // Memory knows whether the game is in its overworld; the intro's scenery can look like one.
-      if (!s.overworld) return act('advance the title or intro', press(['A'], 6, step))
-      if (r.textBox === 'yes') return act('advance the dialogue', press(['A'], 6, step))
+      if (!s.overworld && !s.inBattle && r.kind === 'overworld') return act('advance the title or intro', press(['A'], 6, step))
+      if (r.textBox === 'yes') return act('advance the text', press(['A'], 6, step))
       if (r.textBox === 'unclear') return wait('unsure whether text is showing', slow)
-      return wait('a cutscene is moving the player', slow)
-    case 'battle':
-      // Memory says we're not in battle yet: the battle is still starting.
-      return wait('battle starting', slow)
+      return wait(s.inBattle ? 'battle animation' : 'a cutscene is moving the player', slow)
+
     case 'unclear':
-      return r.textBox === 'yes'
-        ? act('advance the dialogue', press(['A'], 6, step))
-        : wait('unsure what screen this is', slow)
+      return r.textBox === 'yes' ? act('advance the text', press(['A'], 6, step)) : wait('unsure what screen this is', slow)
   }
 }
 
-// Every battle is fought, never run from: FIGHT, then the first move.
-function decideBattle(s: GameState, r: ScreenRead): Action {
-  const step = framesFor(s, SCREEN_STEP_SECONDS)
-  const slow = framesFor(s, SLOW_STEP_SECONDS)
-
-  if (r.battleMoves === 'yes') return act('use the first move', press(['A'], 6, slow))
-  if (r.battleMoves === 'unclear' || r.battleActions === 'unclear') return wait('unsure which battle menu is open', slow)
-
-  // FIGHT is the top-left option, where the cursor starts.
-  if (r.battleActions === 'yes') return act('choose FIGHT', press(['A'], 6, step))
-
-  return act('advance the battle text', press(['A'], 6, step))
+// START menu entries in order (src/start_menu.c). Which ones exist depends on story flags.
+function startMenuOptions(f: Facts | null): string[] {
+  const out: string[] = []
+  if (f?.flag(0x861)) out.push('POKéDEX')
+  if (f?.flag(0x860)) out.push('POKéMON')
+  out.push('BAG')
+  if (f?.flag(0x862)) out.push('POKéNAV')
+  out.push("the player's name", 'SAVE', 'OPTION', 'EXIT')
+  return out
 }
 
-// The player can walk: follow the story goal using memory alone.
-export function decideOnFoot(s: GameState, nav: Navigator): Action {
-  const map = mapName(s)
-  const goal = goalFor(s)
-  if (!map || !goal) return wait(`no goal for map ${s.mapGroup}/${s.mapNum}`, 60)
+// Presses to move a vertical list's cursor from `at` to `want`, then the follow-up presses.
+export function pressesForHighlight(h: Highlight, at: string | null, s: GameState): Action {
+  if (!at) return wait(`unsure where the cursor is in the ${h.menu}`, framesFor(s, SLOW_STEP_SECONDS))
+  if (at === h.want) return act(h.reason, ...h.then)
+  const from = h.options.indexOf(at)
+  const to = h.options.indexOf(h.want)
+  // Unknown positions (like "another item" in a shop list): step down one and look again.
+  const dir: Dir = from === -1 || to === -1 || to > from ? 'Down' : 'Up'
+  const n = from === -1 || to === -1 ? 1 : Math.abs(to - from)
+  return act(`move the cursor ${dir} toward ${h.want}`, ...Array.from({ length: n }, () => press([dir], 3, 6)), press([], 1, framesFor(s, SCREEN_STEP_SECONDS)))
+}
 
-  const pos = { x: s.x, y: s.y }
-  nav.observe(map, pos)
+// ---------- On foot: story goals and the user's rules, from memory alone ----------
+
+// Whether `pos` is already beyond `to` in direction `dir` (same map only).
+function isPast(pos: Pos, to: Pos, dir: Dir) {
+  if (pos.map !== to.map) return false
+  switch (dir) {
+    case 'Up':
+      return pos.y < to.y
+    case 'Down':
+      return pos.y > to.y
+    case 'Left':
+      return pos.x < to.x
+    case 'Right':
+      return pos.x > to.x
+  }
+}
+
+export function decideOnFoot(s: GameState, f: Facts, pos: Pos, session: Session): Action {
+  const service = serviceGoal(pos, f, session)
+  if (service === 'use-potion') {
+    session.intent = 'potion'
+    session.intentStartHp = f.party0?.hp ?? 0
+    return act('Torchic is below 1/3 HP: open the START menu for a Potion', press(['Start'], 6, framesFor(s, SCREEN_STEP_SECONDS)))
+  }
+  session.intent = null
+
+  const goal: Goal | null = service ?? storyProgress(f, pos).goal
+  if (!goal) return wait('no goal: the first badge is won', 60)
+  return walkTo(goal, pos, session)
+}
+
+function walkTo(goal: Goal, pos: Pos, session: Session): Action {
+  const nav = session.nav
+  nav.observe(pos)
 
   // Once a push has carried us past the target (instead of through a door or off the map),
   // keep pushing rather than walking back, which would loop back and forth.
   if (goal.push && isPast(pos, goal.to, goal.push)) {
+    nav.notePress(pos, goal.push)
     return act(`${goal.name}: keep going ${goal.push}`, press([goal.push], 16, 30))
   }
 
-  const dir = nav.nextDir(map, pos, goal.to)
+  const dir = nav.nextDir(pos, goal.to)
   if (dir) return act(`${goal.name}: step ${dir}`, press([dir], 16, 6))
-  if (goal.face) return act(`${goal.name}: face ${goal.face} and press A`, press([goal.face], 3, 8), press(['A'], 6, 30))
-  if (goal.push) return act(`${goal.name}: go ${goal.push}`, press([goal.push], 16, 30))
-  return wait(`${goal.name}: arrived, waiting for the map to change`)
+
+  const here = pos.map === goal.to.map && pos.x === goal.to.x && pos.y === goal.to.y
+  if (!here) return wait(`${goal.name}: no path from ${pos.map} (${pos.x},${pos.y}) yet`, 60)
+  if (goal.face) {
+    noteTalk(goal, session)
+    return act(`${goal.name}: face ${goal.face} and press A`, press([goal.face], 3, 8), press(['A'], 6, 30))
+  }
+  if (goal.push) {
+    nav.notePress(pos, goal.push)
+    return act(`${goal.name}: go ${goal.push}`, press([goal.push], 16, 30))
+  }
+  return wait(`${goal.name}: arrived, waiting for the game`)
 }

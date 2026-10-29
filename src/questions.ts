@@ -1,24 +1,36 @@
 import { choice, noul } from '@typesafe-ai/sdk'
+import type { Mon } from './memory.ts'
 
 // All Jev question wording and thresholds live here.
-// Every question is about `screen`, a 2x-upscaled Game Boy Advance frame.
-// Jev only says what is on screen; policy.ts decides which buttons to press.
+// `screen` is a 2x-upscaled Game Boy Advance frame. Facts read from memory (the place, the
+// Pokémon in battle, the items in the bag) go into the state next to it, so Jev judges with them.
+// Jev says what is on screen and which choice is best; policy.ts decides which buttons to press.
 
 // Noul thresholds: above YES counts as yes, below NO counts as no, between is unclear.
 export const YES_THRESHOLD = 0.7
 export const NO_THRESHOLD = 0.3
 
-// Below this, the top screen kind is too uncertain to act on.
-export const SCREEN_KIND_MIN_PROBABILITY = 0.5
+// Below this, the top answer of a choice is too uncertain to act on.
+export const CHOICE_MIN_PROBABILITY = 0.5
 
+// Asked whenever the player can't walk freely. State: `screen`, `place`.
 export const screenQuestions = {
   screen_kind: choice('What is `screen` from Pokémon Emerald showing?', {
     title_or_intro: 'The title screen, the "press start" screen, or Professor Birch talking on a plain background',
     naming_keyboard: 'A keyboard grid of letters for typing a name',
     clock: 'A large wall clock face for setting the time',
-    starter_bag: "Three Poké Balls in an open bag, for choosing a first Pokémon",
+    starter_bag: 'Three Poké Balls in an open bag, for choosing a first Pokémon',
     battle: 'A Pokémon battle, with Pokémon facing each other and HP bars',
+    evolution: 'A Pokémon in the middle of the screen evolving, with a message like "What? TORCHIC is evolving!"',
     overworld: 'The player walking around a town, a route, or inside a building, seen from above',
+    start_menu: 'A narrow menu on the right side listing entries such as POKéMON, BAG, SAVE, OPTION, and EXIT',
+    bag: 'The bag screen: a picture of a bag on the left and a list of items on the right',
+    item_action_menu: 'A small box of choices for one item, such as USE, GIVE, TOSS, and CANCEL',
+    party_menu: 'The list of the player\'s Pokémon with HP bars, often with "Use on which POKéMON?"',
+    move_forget: 'A Pokémon summary page listing its moves, with "Which move should be forgotten?"',
+    mart_menu: 'A small shop menu with BUY, SELL, and QUIT',
+    mart_list: 'A shop list of items for sale, with their prices',
+    mart_quantity: 'A shop box for choosing how many to buy, showing a number like "x01" and a total price',
     other_menu: 'Any other menu or list, such as choosing BOY or GIRL',
   }),
   text_box_open: noul('Is a dialogue text box showing along the bottom of `screen`?', {
@@ -37,12 +49,54 @@ export const screenQuestions = {
     true: 'The message asks something like "Give a nickname to the TORCHIC?"',
     false: 'The message is about anything else, or there is no message',
   }),
-  battle_actions_open: noul('Is the battle menu with FIGHT, BAG, POKéMON, and RUN showing in `screen`?', {
-    true: 'A box in the bottom right lists FIGHT, BAG, POKéMON, and RUN',
-    false: 'Those four options are not shown',
+  asks_switch_pokemon: noul('Does the text in `screen` ask whether the player will change Pokémon?', {
+    true: 'The message asks something like "Will BRENDAN change POKéMON?"',
+    false: 'The message is about anything else, or there is no message',
   }),
-  battle_moves_open: noul("Is a list of the player's Pokémon's moves showing in `screen`?", {
-    true: 'The bottom of the screen lists move names such as SCRATCH or POUND, with PP shown',
-    false: 'No list of move names is shown',
+  asks_delete_move: noul('Does the text in `screen` ask whether to delete a move to make room for a new one?', {
+    true: 'The message asks something like "Delete a move to make room for DOUBLE KICK?"',
+    false: 'The message is about anything else, or there is no message',
   }),
+  learning_double_kick: noul('Does the text in `screen` say a Pokémon is trying to learn DOUBLE KICK?', {
+    true: 'The message names the move DOUBLE KICK as the one being learned',
+    false: 'The message names a different move, or no move at all',
+  }),
+}
+
+// Asked when the game is waiting for a move choice. One option per move with PP left, named by
+// the move itself. State: `screen`, `my_pokemon`, `foe` (from memory).
+export function bestMoveQuestion(moves: Mon['moves']) {
+  const options = Object.fromEntries(
+    moves
+      .filter((m) => m.pp > 0)
+      .map((m) => [
+        m.name,
+        m.power > 0
+          ? `A ${m.type}-type attack with power ${m.power}`
+          : `A ${m.type}-type move that does no damage itself`,
+      ]),
+  )
+  return {
+    best_move: choice("Which of `my_pokemon`'s moves will do the most damage to `foe` this turn?", options),
+  }
+}
+
+// Asked on menus to find the cursor. `options` are the real entries, read from memory where
+// possible (bag items, known moves), named by what they say on screen. State: `screen`.
+export function highlightedQuestion(menu: string, options: string[]) {
+  return {
+    highlighted: choice(
+      `In \`screen\`, which entry of the ${menu} is highlighted by the cursor?`,
+      Object.fromEntries(options.map((o) => [o, `The cursor or highlight is on ${o}`])),
+    ),
+  }
+}
+
+// Readable place names for the state: PetalburgCity_PokemonCenter_1F -> "Petalburg City Pokémon Center 1F".
+export function placeName(map: string | null): string {
+  if (!map) return 'somewhere in the game'
+  return map
+    .replace(/PokemonCenter/g, 'Pokémon Center')
+    .replace(/_/g, ' ')
+    .replace(/([a-z])([A-Z0-9])/g, '$1 $2')
 }

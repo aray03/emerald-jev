@@ -1,6 +1,6 @@
 # emerald-jev
 
-A bot that plays Pokémon Emerald from **New Game** to **Oldale Town**, using
+A bot that plays Pokémon Emerald from **New Game** to beating **Roxanne**, the first gym leader, using
 [TypeSafe's Jev](https://docs.typesafe.ai) to read the screen.
 
 ```
@@ -72,9 +72,27 @@ The memory addresses come from the pret/pokeemerald decompilation and haven't be
 
 If any of these are wrong, fix the address in `lua/emerald-jev.lua` before a real run.
 
+## What it does
+
+Jev is asked about anything that needs judgment, and gets memory facts alongside the screenshot:
+
+- **Screens:** which screen is showing (dialogue, YES/NO, bag, party, shop, evolution and so on) and which prompts are up. The place comes from memory.
+- **Battles:** the best move. Jev is given Torchic's real moves (type, power, PP) and the foe's species, level and types.
+- **Menus:** which entry the cursor is on, chosen among the real bag items, START menu entries or known moves.
+
+Code applies the rules:
+
+- **Story order:** `src/goals.ts`, checked against story flags and variables in memory.
+- **Healing and shopping:** the first time in Oldale, Petalburg and Rustboro, heal at the Pokémon Center, then buy Potions up to **6**.
+- **Potions:** below **1/3 HP**, use a Potion in battle or out. With none left, go back to a Center.
+- **Training:** train in Route 104's grass until Torchic reaches **level 16**, then face Roxanne.
+- **Battles:** **never run.**
+- **Save states:** saved automatically as each story step is done (`states/01-got-starter.State`, and so on).
+
+Walking uses `src/maps.generated.json` (`npm run maps`), which holds every map on the route with its walls, ledges, grass, doors, stairs and map edges. Move, species and item names come from `src/data.generated.json` (`npm run data`).
+
 ## Known gaps
 
 - Walking learns walls by bumping into them. Ledges or tall grass on Route 101 can cause detours.
 - The naming screen types the name **A**. The bot plays as a boy and picks Torchic.
-- Battles: it never runs. It always picks FIGHT and the first move, wild or not.
 - Image input is an experimental TypeSafe feature, which is why requests send `TypeSafe-Danger-Zone-Images: true`.

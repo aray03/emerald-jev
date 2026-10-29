@@ -1,122 +1,166 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import type { MapName, Tile } from './goals.ts'
-import { WARPS } from './goals.ts'
 import type { Dir } from './schemas.ts'
 
-// Grid pathfinding over each map's real collision data (src/maps.generated.json, built from
-// pokeemerald by `npm run maps`). People and other things that move aren't in that data, so
-// moves that fail at runtime are also remembered as walls for a while.
+// Pathfinding over every map on the route at once (src/maps.generated.json, built from
+// pokeemerald by `npm run maps`). A position is (map, x, y); one press of a direction either
+// walks a tile, jumps a ledge, or crosses a door, stairs, exit mat or map edge into another map.
+// People and other things that move aren't in that data, so moves that fail at runtime are
+// remembered as blocked for a while.
 
-const STEP: Record<Dir, Tile> = {
-  Up: { x: 0, y: -1 },
-  Down: { x: 0, y: 1 },
-  Left: { x: -1, y: 0 },
-  Right: { x: 1, y: 0 },
-}
-const DIRS = Object.keys(STEP) as Dir[]
+export type Tile = { x: number; y: number }
+export type Pos = Tile & { map: string }
 
-// A ledge can only be jumped across in one direction, landing two tiles on.
-const LEDGE: Record<string, Dir> = { v: 'Down', '^': 'Up', '<': 'Left', '>': 'Right' }
+type Warp = { x: number; y: number; to: string | null; toWarp: number; behavior: string }
+type Connection = { direction: 'up' | 'down' | 'left' | 'right'; to: string; offset: number }
+type MapData = { group: number; num: number; w: number; h: number; rows: string[]; warps: Warp[]; connections: Connection[] }
 
-type Grid = { w: number; h: number; rows: string[] }
-const GRIDS: Record<MapName, Grid> = JSON.parse(
+export const MAPS: Record<string, MapData> = JSON.parse(
   readFileSync(path.resolve(import.meta.dirname, 'maps.generated.json'), 'utf8'),
 )
+
+export function mapNameFor(group: number, num: number): string | null {
+  for (const [name, m] of Object.entries(MAPS)) if (m.group === group && m.num === num) return name
+  return null
+}
+
+const STEP: Record<Dir, Tile> = { Up: { x: 0, y: -1 }, Down: { x: 0, y: 1 }, Left: { x: -1, y: 0 }, Right: { x: 1, y: 0 } }
+const DIRS = Object.keys(STEP) as Dir[]
+const EDGE: Record<Connection['direction'], Dir> = { up: 'Up', down: 'Down', left: 'Left', right: 'Right' }
+const LEDGE: Record<string, Dir> = { v: 'Down', '^': 'Up', '<': 'Left', '>': 'Right' }
+
+// Exit mats and similar: you stand on them and press the arrow's direction.
+const ARROW: Record<string, Dir> = {
+  MB_SOUTH_ARROW_WARP: 'Down',
+  MB_NORTH_ARROW_WARP: 'Up',
+  MB_EAST_ARROW_WARP: 'Right',
+  MB_WEST_ARROW_WARP: 'Left',
+  MB_DEEP_SOUTH_WARP: 'Down',
+  MB_WATER_SOUTH_ARROW_WARP: 'Down',
+}
+// Doors: you walk up into them from the tile below; leaving, you appear one tile below.
+const isDoor = (behavior: string) => /DOOR$/.test(behavior)
 
 // A move must fail this many times before we treat it as blocked (the first try may only turn the player).
 const FAILS_BEFORE_BLOCKED = 2
 // Forget learned blocks after this many steps, since people move around.
 const BLOCK_TTL_STEPS = 80
 
-type LastMove = { map: MapName; from: Tile; dir: Dir }
+const key = (p: Pos) => `${p.map}:${p.x},${p.y}`
+const same = (a: Pos, b: Pos) => a.map === b.map && a.x === b.x && a.y === b.y
 
 export class Navigator {
   private blocked = new Map<string, number>() // edge key -> step it was learned
   private fails = new Map<string, number>()
-  private last: LastMove | null = null
+  private last: { from: Pos; dir: Dir } | null = null
   private step = 0
 
   // Call once per overworld step, before choosing the next move.
-  observe(map: MapName, pos: Tile) {
+  observe(pos: Pos) {
     this.step++
-    for (const [key, learnedAt] of this.blocked) {
-      if (this.step - learnedAt > BLOCK_TTL_STEPS) this.blocked.delete(key)
-    }
+    for (const [k, learnedAt] of this.blocked) if (this.step - learnedAt > BLOCK_TTL_STEPS) this.blocked.delete(k)
 
     const last = this.last
     this.last = null
-    if (!last || last.map !== map) return
-
-    const key = edgeKey(map, last.from, last.dir)
-    if (last.from.x === pos.x && last.from.y === pos.y) {
-      const n = (this.fails.get(key) ?? 0) + 1
-      this.fails.set(key, n)
-      if (n >= FAILS_BEFORE_BLOCKED) this.blocked.set(key, this.step)
+    if (!last) return
+    const k = `${key(last.from)}:${last.dir}`
+    if (same(last.from, pos)) {
+      const n = (this.fails.get(k) ?? 0) + 1
+      this.fails.set(k, n)
+      if (n >= FAILS_BEFORE_BLOCKED) this.blocked.set(k, this.step)
     } else {
-      this.fails.delete(key)
+      this.fails.delete(k)
     }
   }
 
-  // Next direction from `pos` toward `to`, or null if already there.
-  nextDir(map: MapName, pos: Tile, to: Tile): Dir | null {
-    if (pos.x === to.x && pos.y === to.y) return null
-
-    let dir = this.bfs(map, pos, to)
+  // Next direction from `from` toward `to` (possibly on another map), or null if already there
+  // or unreachable.
+  nextDir(from: Pos, to: Pos): Dir | null {
+    if (same(from, to)) return null
+    let dir = this.search(from, to)
     if (!dir) {
-      // Every route looks blocked; the learned blocks are stale, so forget them for this map.
-      this.forget(map)
-      dir = this.bfs(map, pos, to)
+      // Every route looks blocked; the learned blocks are stale, so forget them.
+      this.blocked.clear()
+      dir = this.search(from, to)
     }
-    if (dir) this.last = { map, from: pos, dir }
+    if (dir) this.last = { from, dir }
     return dir
   }
 
-  private forget(map: MapName) {
-    for (const key of [...this.blocked.keys()]) if (key.startsWith(`${map}:`)) this.blocked.delete(key)
+  // Remember a press made outside nextDir (pushing through a door), so failures are noticed.
+  notePress(from: Pos, dir: Dir) {
+    this.last = { from, dir }
   }
 
-  // Where a single press of `dir` from `cur` ends up, or null if it can't be done.
-  private move(map: MapName, cur: Tile, dir: Dir, to: Tile): Tile | null {
-    const grid = GRIDS[map]
-    const tile = (t: Tile) => (t.x >= 0 && t.y >= 0 && t.x < grid.w && t.y < grid.h ? grid.rows[t.y]![t.x]! : null)
-    const isTarget = (t: Tile) => t.x === to.x && t.y === to.y
-    // Doors and stairs warp to another map, so only step onto one when it's the destination.
-    const isWarp = (t: Tile) => WARPS[map].some((w) => w.x === t.x && w.y === t.y)
+  // Where one press of `dir` from `cur` ends up, or null if it can't be done.
+  move(cur: Pos, dir: Dir, target?: Pos): Pos | null {
+    const map = MAPS[cur.map]
+    if (!map || this.blocked.has(`${key(cur)}:${dir}`)) return null
+    const tile = (x: number, y: number) => (x >= 0 && y >= 0 && x < map.w && y < map.h ? map.rows[y]![x]! : null)
+    const warpAt = (x: number, y: number) => map.warps.find((w) => w.x === x && w.y === y)
 
-    if (this.blocked.has(edgeKey(map, cur, dir))) return null
-    const next = { x: cur.x + STEP[dir].x, y: cur.y + STEP[dir].y }
-    const t = tile(next)
-    if (t === null || t === '#') return null
+    // Standing on an exit mat and pressing its direction.
+    const here = warpAt(cur.x, cur.y)
+    if (here && ARROW[here.behavior] === dir) return here.to ? arrive(here) : null
 
+    const nx = cur.x + STEP[dir].x
+    const ny = cur.y + STEP[dir].y
+    const isTarget = target && target.map === cur.map && target.x === nx && target.y === ny
+
+    // Off the edge of the map into a connected one.
+    const t = tile(nx, ny)
+    if (t === null) {
+      const c = map.connections.find((c) => EDGE[c.direction] === dir)
+      if (!c) return null
+      const next = MAPS[c.to]!
+      const dest =
+        dir === 'Up' ? { x: nx - c.offset, y: next.h - 1 }
+        : dir === 'Down' ? { x: nx - c.offset, y: 0 }
+        : dir === 'Left' ? { x: next.w - 1, y: ny - c.offset }
+        : { x: 0, y: ny - c.offset }
+      const dt = next.rows[dest.y]?.[dest.x]
+      return dt && dt !== '#' && !LEDGE[dt] ? { map: c.to, ...dest } : null
+    }
+
+    const warp = warpAt(nx, ny)
+    if (warp) {
+      // Walking up into a door enters it.
+      if (isDoor(warp.behavior)) return dir === 'Up' && warp.to ? arrive(warp) : null
+      // Exit mats are only entered by standing on them, so stepping onto one is a normal step.
+      if (ARROW[warp.behavior]) return t === '#' ? null : { map: cur.map, x: nx, y: ny }
+      // Stairs and the like warp as soon as you step on them; off-route ones are avoided
+      // unless they are the target itself.
+      if (warp.to) return arrive(warp)
+      return isTarget ? { map: cur.map, x: nx, y: ny } : null
+    }
+
+    if (t === '#') return null
     const ledge = LEDGE[t]
     if (ledge) {
       if (ledge !== dir) return null
-      const landing = { x: next.x + STEP[dir].x, y: next.y + STEP[dir].y }
-      const l = tile(landing)
-      return l === '.' && !isWarp(landing) ? landing : null
+      const lx = nx + STEP[dir].x
+      const ly = ny + STEP[dir].y
+      const l = tile(lx, ly)
+      return l === '.' || l === 'g' ? { map: cur.map, x: lx, y: ly } : null
     }
-
-    if (isWarp(next) && !isTarget(next)) return null
-    return next
+    return { map: cur.map, x: nx, y: ny }
   }
 
-  private bfs(map: MapName, from: Tile, to: Tile): Dir | null {
+  private search(from: Pos, to: Pos): Dir | null {
     const firstDir = new Map<string, Dir>()
-    const seen = new Set([`${from.x},${from.y}`])
-    const queue: Tile[] = [from]
-
-    while (queue.length) {
-      const cur = queue.shift()!
+    const seen = new Set([key(from)])
+    const queue: Pos[] = [from]
+    for (let i = 0; i < queue.length; i++) {
+      const cur = queue[i]!
       for (const dir of DIRS) {
-        const next = this.move(map, cur, dir, to)
+        const next = this.move(cur, dir, to)
         if (!next) continue
-        const k = `${next.x},${next.y}`
+        const k = key(next)
         if (seen.has(k)) continue
         seen.add(k)
-        const via = cur === from ? dir : firstDir.get(`${cur.x},${cur.y}`)!
+        const via = i === 0 ? dir : firstDir.get(key(cur))!
         firstDir.set(k, via)
-        if (next.x === to.x && next.y === to.y) return via
+        if (same(next, to)) return via
         queue.push(next)
       }
     }
@@ -124,6 +168,9 @@ export class Navigator {
   }
 }
 
-function edgeKey(map: MapName, from: Tile, dir: Dir) {
-  return `${map}:${from.x},${from.y}:${dir}`
+// Where you appear after taking `warp`: its destination warp tile, or one tile below it for doors.
+function arrive(warp: Warp): Pos | null {
+  const dest = warp.to ? MAPS[warp.to]?.warps[warp.toWarp] : undefined
+  if (!warp.to || !dest) return null
+  return isDoor(dest.behavior) ? { map: warp.to, x: dest.x, y: dest.y + 1 } : { map: warp.to, x: dest.x, y: dest.y }
 }
