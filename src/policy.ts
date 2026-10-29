@@ -99,6 +99,8 @@ export function decideFromScreen(s: GameState, f: Facts | null, map: string | nu
     // Memory says which move is being learned: swap out a move that does no damage for a
     // damaging one, and turn down anything else.
     const learning = f?.moveToLearn
+    // An outdated Lua script doesn't send the move: decline rather than wait forever.
+    if (learning === undefined) return act("can't read the move on offer (outdated Lua script): skip it", press(['B'], 6, step))
     if (!learning || !f?.party0) return wait('reading which move is being learned', slow)
     return replaceableMove(f.party0, learning)
       ? act(`make room for ${learning.name}`, press(['A'], 6, step))

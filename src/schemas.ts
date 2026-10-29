@@ -12,12 +12,13 @@ export const rawMemorySchema = z.object({
   bagItems: z.string(),
   flags: z.string(),
   vars: z.string(),
-  moveToLearn: z.number().int().default(0),
+  moveToLearn: z.number().int().optional(), // missing from scripts older than version 2
 })
 export type RawMemory = z.infer<typeof rawMemorySchema>
 
 // What lua/emerald-jev.lua reads from memory and sends each step.
 export const gameStateSchema = z.object({
+  scriptVersion: z.number().int().default(1),
   frame: z.number().int(),
   speedPercent: z.number().int().positive().default(100), // emulator speed set by the Lua script
   gameCode: z.string(),

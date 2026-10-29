@@ -56,7 +56,7 @@ Each run writes `runs/<time>.jsonl` with one line per step: memory state, the ex
 - `npm run states` lists your saves.
 - `STATE=states/<name>.State ./play.sh` starts BizHawk from that save instead of the title screen.
 
-Restart the server between runs so it forgets what it learned about the last one. `states/` is gitignored.
+Restart the server between runs so it forgets what it learned about the last one. BizHawk loads the Lua script once at launch: after the script changes, reload it (Lua Console → Refresh) or restart `./play.sh`. The server warns if the two are out of step. `states/` is gitignored.
 
 ## First time: do a dry run
 

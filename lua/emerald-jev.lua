@@ -3,6 +3,8 @@
 -- Launch BizHawk with --url_get=http://127.0.0.1:3100/ or comm.httpPost is disabled.
 
 local SERVER = "http://127.0.0.1:3100"
+-- Bump whenever what this script sends changes; the server warns when BizHawk runs an old copy.
+local SCRIPT_VERSION = 2
 local SETTLE_FRAMES = 10 -- let the game draw before reading the screen
 local SPEED_PERCENT = 400 -- emulator speed; the server scales its waits so screen checks stay ~0.25 s apart
 local BUS = "System Bus"
@@ -71,11 +73,12 @@ local function readState()
 
   -- Only numbers and fixed strings, so a hand-built JSON string is safe.
   return string.format(
-    '{"frame":%d,"speedPercent":%d,"gameCode":"%s","mapGroup":%d,"mapNum":%d,"x":%d,"y":%d,' ..
+    '{"scriptVersion":%d,"frame":%d,"speedPercent":%d,"gameCode":"%s","mapGroup":%d,"mapNum":%d,"x":%d,"y":%d,' ..
       '"inBattle":%s,"controlsLocked":%s,"overworld":%s,"battleFlags":%d,"battleOutcome":%d,' ..
       '"vars":{"introState":%d,"townState":%d,"route101State":%d,"birchLabState":%d},"screenshot":"%s",' ..
       '"raw":{"party0":"%s","battleMons":"%s","actionCursor":%d,"moveCursor":%d,"controllerFunc":%d,' ..
       '"encryptionKey":%d,"money":%d,"bagItems":"%s","flags":"%s","vars":"%s","moveToLearn":%d}}',
+    SCRIPT_VERSION,
     emu.framecount(),
     SPEED_PERCENT,
     readGameCode(),

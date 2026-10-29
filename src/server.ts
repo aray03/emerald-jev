@@ -15,6 +15,7 @@ import { queueSave, takePendingSave } from './states.ts'
 const PORT = Number(process.env.EMERALD_PORT ?? 3100)
 const DRY_RUN = process.env.DRY_RUN === '1'
 const EXPECTED_GAME_CODE = 'BPEE' // Pokémon Emerald (USA, Europe)
+const LUA_SCRIPT_VERSION = 2 // must match SCRIPT_VERSION in lua/emerald-jev.lua
 
 const app = express()
 let session = new Session()
@@ -68,6 +69,15 @@ app.post('/step', express.urlencoded({ extended: false, limit: '1mb' }), async (
     console.error(`[step ${step}] bad payload`, err)
     res.send(waitReply(60))
     return
+  }
+
+  // BizHawk loads the Lua script once at launch, so after the script changes it keeps running
+  // the old copy until it's reloaded.
+  if (state.scriptVersion !== LUA_SCRIPT_VERSION && step % 20 === 1) {
+    console.error(
+      `\n[step ${step}] BizHawk is running an outdated Lua script (version ${state.scriptVersion}, expected ${LUA_SCRIPT_VERSION}).` +
+        `\n         Reload it: Lua Console -> select emerald-jev.lua -> Refresh, or restart ./play.sh\n`,
+    )
   }
 
   if (state.gameCode !== EXPECTED_GAME_CODE) {
