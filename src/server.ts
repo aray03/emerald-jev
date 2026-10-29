@@ -165,7 +165,7 @@ async function decide(state: GameState, facts: Facts, map: string | null): Promi
   const calls = [call]
   let h = decision
   for (;;) {
-    const cursor = await readHighlighted(image, h.menu, h.options)
+    const cursor = await readHighlighted(image, h.menu, h.options, h.horizontal)
     calls.push(cursor.call)
     if (cursor.highlighted === h.want && h.next) {
       h = h.next

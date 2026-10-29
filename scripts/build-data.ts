@@ -130,7 +130,34 @@ for (const m of table.matchAll(/(TYPE_\w+),\s*(TYPE_\w+),\s*(TYPE_MUL_\w+)/g)) {
   typeChart.push([typeName(m[1]), typeName(m[2]), MULTIPLIER[m[3]!] ?? 1])
 }
 
-writeFileSync(OUT, JSON.stringify({ moves, species, items, types, typeChart }) + '\n')
+// Poké Mart stock lists, in on-screen order, from each Mart's clerk script. Which list is shown
+// can depend on a story flag (`goto_if_set FLAG, Label` / `goto_if_unset`), else the default.
+const flagsH = await text('include/constants/flags.h')
+const flagIds = new Map<string, number>()
+for (const m of flagsH.matchAll(/^#define (FLAG_\w+)\s+(0x[0-9A-Fa-f]+|\d+)\b/gm)) flagIds.set(m[1]!, Number(m[2]))
+type Stock = { default: string[] | null; rules: { flag: number; set: boolean; items: string[] }[] }
+const marts: Record<string, Stock> = {}
+for (const mart of ['OldaleTown_Mart', 'PetalburgCity_Mart', 'RustboroCity_Mart']) {
+  const src = await text(`data/maps/${mart}/scripts.inc`)
+  // Items of the `pokemart` list that follows a label (or the clerk script itself).
+  const listAfter = (from: number) => {
+    const name = src.slice(from).match(/pokemart (\w+)/)?.[1]
+    if (!name) return null
+    const body = src.slice(src.indexOf(`${name}:`), src.indexOf('pokemartlistend', src.indexOf(`${name}:`)))
+    return [...body.matchAll(/\.2byte (ITEM_\w+)/g)].map((m) => items[itemIds.get(m[1]!)!]?.name ?? m[1]!)
+  }
+  const clerk = src.indexOf('EventScript_Clerk::')
+  const clerkBody = src.slice(clerk, src.indexOf('::', src.indexOf('\n', clerk)))
+  const rules = [...clerkBody.matchAll(/goto_if_(set|unset) (FLAG_\w+), (\w+)/g)].map((m) => ({
+    flag: flagIds.get(m[2]!)!,
+    set: m[1] === 'set',
+    items: listAfter(src.indexOf(`${m[3]}::`))!,
+  }))
+  marts[mart] = { default: /pokemart /.test(clerkBody) ? listAfter(clerk) : null, rules }
+}
+
+writeFileSync(OUT, JSON.stringify({ moves, species, items, types, typeChart, marts }) + '\n')
+console.log('marts:', JSON.stringify(marts))
 console.log(`moves ${Object.keys(moves).length}, species ${Object.keys(species).length}, items ${Object.keys(items).length}, types ${Object.keys(types).length}`)
 console.log('checks:', moves[52], moves[24], species[280], species[74], items[13], items[4], types[5], `typeChart ${typeChart.length} entries`)
 console.log(`wrote ${OUT}`)

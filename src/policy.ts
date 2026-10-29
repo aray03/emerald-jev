@@ -1,6 +1,6 @@
 import { storyProgress, type Goal } from './goals.ts'
 import type { ScreenRead } from './jev.ts'
-import { ITEM_POTION, type Facts } from './memory.ts'
+import { ITEM_POTION, martStock, type Facts } from './memory.ts'
 import type { Pos } from './nav.ts'
 import { isLowHp, noteTalk, potionsToBuy, serviceGoal } from './services.ts'
 import type { Session } from './session.ts'
@@ -176,9 +176,13 @@ export function decideFromScreen(s: GameState, f: Facts | null, map: string | nu
         : act('QUIT the shop', press(['B'], 6, step))
 
     case 'mart_list':
+    {
       if (!f || session.boughtThisVisit || potionsToBuy(f) === 0) return act('leave the shop list', press(['B'], 6, step))
-      // The stock differs by town, so only POTION and "something else" need telling apart.
-      return { kind: 'highlight', menu: 'shop list', options: ['POTION', 'another item', 'CANCEL'], want: 'POTION', then: [press(['A'], 6, step)], reason: 'choose POTION' }
+      // The real stock for this Mart at this point in the story, in on-screen order.
+      const stock = map ? martStock(map, f.flag) : null
+      if (!stock?.includes('POTION')) return act('this shop has no Potions: leave the list', press(['B'], 6, step))
+      return { kind: 'highlight', menu: 'shop list', options: [...stock, 'CANCEL'], want: 'POTION', then: [press(['A'], 6, step)], reason: 'choose POTION' }
+    }
 
     case 'mart_quantity': {
       // The box starts at 1; each Up adds one.

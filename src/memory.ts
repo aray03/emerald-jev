@@ -11,6 +11,8 @@ type Data = {
   items: Record<string, { name: string; price: number }>
   types: Record<string, string>
   typeChart: [string, string, number][] // attacker type, defender type, multiplier
+  // Poké Mart stock in on-screen order; the first rule whose flag matches wins, else `default`.
+  marts: Record<string, { default: string[] | null; rules: { flag: number; set: boolean; items: string[] }[] }>
 }
 export const DATA: Data = JSON.parse(readFileSync(path.resolve(import.meta.dirname, 'data.generated.json'), 'utf8'))
 
@@ -91,6 +93,13 @@ export function decodeBattleMon(hex: string, index: number): Mon | null {
   }
   const types = [...new Set([b.readUInt8(0x21), b.readUInt8(0x22)].map((t) => DATA.types[t] ?? `type ${t}`))]
   return { species, name: speciesInfo(species).name, types, level: b.readUInt8(0x2a), hp: b.readUInt16LE(0x28), maxHp: b.readUInt16LE(0x2c), moves }
+}
+
+// What a Mart sells right now, in on-screen order, or null for a map that isn't a Mart.
+export function martStock(map: string, flag: (id: number) => boolean): string[] | null {
+  const mart = DATA.marts[map]
+  if (!mart) return null
+  return mart.rules.find((r) => flag(r.flag) === r.set)?.items ?? mart.default
 }
 
 export type BagItem = { id: number; name: string; quantity: number }

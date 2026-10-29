@@ -91,13 +91,19 @@ function describeMove(m: Mon['moves'][number], me: Mon, foe: Mon): string {
 
 // Asked on menus to find the cursor. `options` are the real entries, read from memory where
 // possible (bag items, known moves), named by what they say on screen. State: `screen`.
-export function highlightedQuestion(menu: string, options: string[]) {
-  return {
-    highlighted: choice(
-      `In \`screen\`, which entry of the ${menu} is highlighted by the cursor?`,
-      Object.fromEntries(options.map((o) => [o, `The cursor or highlight is on ${o}`])),
-    ),
-  }
+// Lists mark the cursor with a small ▶ triangle; long lists also show an orange ▼ at the bottom
+// that only means "this list scrolls", which was being read as the cursor. Tab rows (the bag's
+// pockets) have no ▶: the open tab is the one whose name is shown.
+export function highlightedQuestion(menu: string, options: string[], tabs = false) {
+  const instructions = tabs
+    ? `In \`screen\`, which of the ${menu} is the one currently open?`
+    : `In \`screen\`, which entry of the ${menu} has the cursor, the small ▶ triangle just to the left of its name?`
+  const criteria = tabs
+    ? Object.fromEntries(options.map((o) => [o, `The ${o} tab is open: its name is shown at the top`]))
+    : Object.fromEntries(
+        options.map((o) => [o, `The ▶ points at ${o}. Ignore the orange ▼ below the list, which only shows that the list scrolls`]),
+      )
+  return { highlighted: choice(instructions, criteria) }
 }
 
 // Readable place names for the state: PetalburgCity_PokemonCenter_1F -> "Petalburg City Pokémon Center 1F".

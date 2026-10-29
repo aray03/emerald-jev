@@ -99,7 +99,8 @@ export async function readHighlighted(
   frame: Buffer,
   menu: string,
   options: string[],
+  tabs = false,
 ): Promise<{ highlighted: string | null; call: JevCall }> {
-  const { answers, call } = await ask(frame, {}, highlightedQuestion(menu, options))
+  const { answers, call } = await ask(frame, {}, highlightedQuestion(menu, options, tabs))
   return { highlighted: topChoice(answers.highlighted).choice, call }
 }
