@@ -90,7 +90,7 @@ export async function chooseMove(frame: Buffer, me: Mon, foe: Mon): Promise<{ mo
     my_pokemon: { species: me.name, level: me.level, types: me.types, hp: me.hp, max_hp: me.maxHp },
     foe: { species: foe.name, level: foe.level, types: foe.types, hp_percent: Math.round((100 * foe.hp) / Math.max(1, foe.maxHp)) },
   }
-  const { answers, call } = await ask(frame, facts, bestMoveQuestion(me.moves))
+  const { answers, call } = await ask(frame, facts, bestMoveQuestion(me, foe))
   return { move: topChoice(answers.best_move).choice, call }
 }
 

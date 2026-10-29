@@ -6,10 +6,11 @@ import type { RawMemory } from './schemas.ts'
 // Layouts are from pret/pokeemerald: include/pokemon.h, include/battle.h, include/global.h.
 
 type Data = {
-  moves: Record<string, { name: string; type: string; power: number; pp: number }>
+  moves: Record<string, { name: string; type: string; power: number; pp: number; effect: string }>
   species: Record<string, { name: string; types: string[] }>
   items: Record<string, { name: string; price: number }>
   types: Record<string, string>
+  typeChart: [string, string, number][] // attacker type, defender type, multiplier
 }
 export const DATA: Data = JSON.parse(readFileSync(path.resolve(import.meta.dirname, 'data.generated.json'), 'utf8'))
 
@@ -21,12 +22,20 @@ const HANDLE_INPUT_CHOOSE_MOVE = 0x08057bfd
 
 const bytes = (hex: string) => Buffer.from(hex, 'hex')
 
-export type Move = { id: number; name: string; type: string; power: number; pp: number }
+export type Move = { id: number; name: string; type: string; power: number; pp: number; effect: string }
 export type Mon = { species: number; name: string; types: string[]; level: number; hp: number; maxHp: number; moves: Move[] }
 
 function move(id: number, pp: number): Move {
   const m = DATA.moves[id]
-  return { id, name: m?.name ?? `MOVE ${id}`, type: m?.type ?? 'unknown', power: m?.power ?? 0, pp }
+  return { id, name: m?.name ?? `MOVE ${id}`, type: m?.type ?? 'unknown', power: m?.power ?? 0, pp, effect: m?.effect ?? 'HIT' }
+}
+
+// Type effectiveness of a move type against a defender's types, from the game's own chart.
+export function effectiveness(moveType: string, defenderTypes: string[]): number {
+  return defenderTypes.reduce(
+    (mult, def) => mult * (DATA.typeChart.find(([a, d]) => a === moveType && d === def)?.[2] ?? 1),
+    1,
+  )
 }
 
 function speciesInfo(id: number) {

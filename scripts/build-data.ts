@@ -60,7 +60,7 @@ function blocks(src: string, prefix: string): Map<string, string> {
 
 const field = (block: string, name: string) => block.match(new RegExp(`\\.${name}\\s*=\\s*([^,\\n]+)`))?.[1]?.trim()
 
-const [movesH, speciesH, itemsH, pokemonH, moveNames, speciesNames, itemsData, battleMoves, speciesInfo] =
+const [movesH, speciesH, itemsH, pokemonH, moveNames, speciesNames, itemsData, battleMoves, speciesInfo, battleMain] =
   await Promise.all([
     text('include/constants/moves.h'),
     text('include/constants/species.h'),
@@ -71,6 +71,7 @@ const [movesH, speciesH, itemsH, pokemonH, moveNames, speciesNames, itemsData, b
     text('src/data/items.h'),
     text('src/data/battle_moves.h'),
     text('src/data/pokemon/species_info.h'),
+    text('src/battle_main.c'),
   ])
 
 const typeIds = defines(pokemonH, 'TYPE_')
@@ -79,12 +80,18 @@ const typeName = (t?: string) => (t ? t.replace(/^TYPE_/, '').toLowerCase() : 'n
 const moveIds = defines(movesH, 'MOVE_')
 const moveNameMap = nameTable(moveNames, 'MOVE_')
 const moveBlocks = blocks(battleMoves, 'MOVE_')
-const moves: Record<number, { name: string; type: string; power: number; pp: number }> = {}
+const moves: Record<number, { name: string; type: string; power: number; pp: number; effect: string }> = {}
 for (const [key, id] of moveIds) {
   const b = moveBlocks.get(key)
   const name = moveNameMap.get(key)
   if (!b || !name) continue
-  moves[id] = { name, type: typeName(field(b, 'type')), power: Number(field(b, 'power') ?? 0), pp: Number(field(b, 'pp') ?? 0) }
+  moves[id] = {
+    name,
+    type: typeName(field(b, 'type')),
+    power: Number(field(b, 'power') ?? 0),
+    pp: Number(field(b, 'pp') ?? 0),
+    effect: (field(b, 'effect') ?? 'EFFECT_HIT').replace(/^EFFECT_/, ''),
+  }
 }
 
 const speciesIds = defines(speciesH, 'SPECIES_')
@@ -112,7 +119,18 @@ for (const [key, id] of itemIds) {
 const types: Record<number, string> = {}
 for (const [key, id] of typeIds) if (id !== 255) types[id] = typeName(key)
 
-writeFileSync(OUT, JSON.stringify({ moves, species, items, types }) + '\n')
+// gTypeEffectiveness (src/battle_main.c): attacker type, defender type, multiplier x10.
+// Pairs not listed are neutral. The TYPE_FORESIGHT marker only splits off the Ghost immunities,
+// which apply normally, so it is skipped.
+const MULTIPLIER: Record<string, number> = { TYPE_MUL_SUPER_EFFECTIVE: 2, TYPE_MUL_NOT_EFFECTIVE: 0.5, TYPE_MUL_NO_EFFECT: 0 }
+const table = battleMain.slice(battleMain.indexOf('gTypeEffectiveness['), battleMain.indexOf('};', battleMain.indexOf('gTypeEffectiveness[')))
+const typeChart: [string, string, number][] = []
+for (const m of table.matchAll(/(TYPE_\w+),\s*(TYPE_\w+),\s*(TYPE_MUL_\w+)/g)) {
+  if (m[1] === 'TYPE_FORESIGHT' || m[1] === 'TYPE_ENDTABLE') continue
+  typeChart.push([typeName(m[1]), typeName(m[2]), MULTIPLIER[m[3]!] ?? 1])
+}
+
+writeFileSync(OUT, JSON.stringify({ moves, species, items, types, typeChart }) + '\n')
 console.log(`moves ${Object.keys(moves).length}, species ${Object.keys(species).length}, items ${Object.keys(items).length}, types ${Object.keys(types).length}`)
-console.log('checks:', moves[52], moves[24], species[280], species[74], species[299], items[13], items[4], types[5])
+console.log('checks:', moves[52], moves[24], species[280], species[74], items[13], items[4], types[5], `typeChart ${typeChart.length} entries`)
 console.log(`wrote ${OUT}`)

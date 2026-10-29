@@ -1,5 +1,5 @@
 import { choice, noul } from '@typesafe-ai/sdk'
-import type { Mon } from './memory.ts'
+import { effectiveness, type Mon } from './memory.ts'
 
 // All Jev question wording and thresholds live here.
 // `screen` is a 2x-upscaled Game Boy Advance frame. Facts read from memory (the place, the
@@ -64,21 +64,29 @@ export const screenQuestions = {
 }
 
 // Asked when the game is waiting for a move choice. One option per move with PP left, named by
-// the move itself. State: `screen`, `my_pokemon`, `foe` (from memory).
-export function bestMoveQuestion(moves: Mon['moves']) {
+// the move itself. Each option states what code already knows from the game's data (type
+// effectiveness against this foe, same-type bonus, hitting twice), so Jev weighs facts rather
+// than recalling the type chart. State: `screen`, `my_pokemon`, `foe` (from memory).
+export function bestMoveQuestion(me: Mon, foe: Mon) {
   const options = Object.fromEntries(
-    moves
-      .filter((m) => m.pp > 0)
-      .map((m) => [
-        m.name,
-        m.power > 0
-          ? `A ${m.type}-type attack with power ${m.power}`
-          : `A ${m.type}-type move that does no damage itself`,
-      ]),
+    me.moves.filter((m) => m.pp > 0).map((m) => [m.name, describeMove(m, me, foe)]),
   )
   return {
     best_move: choice("Which of `my_pokemon`'s moves will do the most damage to `foe` this turn?", options),
   }
+}
+
+function describeMove(m: Mon['moves'][number], me: Mon, foe: Mon): string {
+  if (m.power === 0) return `A ${m.type}-type move that does no damage`
+  const parts = [`A ${m.type}-type attack with power ${m.power}`]
+  if (m.effect === 'DOUBLE_HIT') parts.push('it hits twice')
+  const mult = effectiveness(m.type, foe.types)
+  if (mult === 0) parts.push(`it has no effect on ${foe.name}`)
+  else if (mult > 1) parts.push(`it is super effective on ${foe.name} (${mult}x damage)`)
+  else if (mult < 1) parts.push(`it is not very effective on ${foe.name} (${mult}x damage)`)
+  else parts.push(`normal effectiveness on ${foe.name}`)
+  if (me.types.includes(m.type)) parts.push(`same type as ${me.name}, so 1.5x damage`)
+  return parts.join('; ')
 }
 
 // Asked on menus to find the cursor. `options` are the real entries, read from memory where
