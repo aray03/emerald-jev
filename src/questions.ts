@@ -27,7 +27,10 @@ export const screenQuestions = {
     bag: 'The bag screen: a picture of a bag on the left and a list of items on the right',
     item_action_menu: 'A small box of choices for one item, such as USE, GIVE, TOSS, and CANCEL',
     party_menu: 'The list of the player\'s Pokémon with HP bars, often with "Use on which POKéMON?"',
-    move_forget: 'A Pokémon summary page listing its moves, with "Which move should be forgotten?"',
+    move_forget:
+      'A full-screen BATTLE MOVES page listing the Pokémon\'s moves with their PP, a red box around one of them, and EFFECT and DESCRIPTION panels. Not a battle scene with a message about moves',
+    pokenav: 'The PokéNav main menu filling the screen, with big buttons such as HOENN MAP, CONDITION, MATCH CALL, and SWITCH OFF',
+    pokenav_match_call: "The PokéNav's MATCH CALL list of contacts such as MR. STONE, possibly with CALL / CHECK / CANCEL or a call in progress",
     mart_menu: 'A small shop menu with BUY, SELL, and QUIT',
     mart_list: 'A shop list of items for sale, with their prices',
     mart_quantity: 'A shop box for choosing how many to buy, showing a number like "x01" and a total price',

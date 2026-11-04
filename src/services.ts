@@ -1,5 +1,5 @@
 import type { Goal } from './goals.ts'
-import { canAttack, type Facts } from './memory.ts'
+import { canAttack, martStock, type Facts } from './memory.ts'
 import type { Pos } from './nav.ts'
 import type { Session } from './session.ts'
 
@@ -13,11 +13,14 @@ export const MIN_POTIONS = 6
 export const POTION_PRICE = 300
 
 // Each Center and Mart has the same layout: talk to the nurse from (7,4) facing up, and to the
-// clerk from (3,3) facing left.
-const TOWNS: Record<string, { center: string; mart: string }> = {
+// clerk from (3,3) facing left. Dewford has no Mart.
+const TOWNS: Record<string, { center: string; mart?: string }> = {
   OldaleTown: { center: 'OldaleTown_PokemonCenter_1F', mart: 'OldaleTown_Mart' },
   PetalburgCity: { center: 'PetalburgCity_PokemonCenter_1F', mart: 'PetalburgCity_Mart' },
   RustboroCity: { center: 'RustboroCity_PokemonCenter_1F', mart: 'RustboroCity_Mart' },
+  DewfordTown: { center: 'DewfordTown_PokemonCenter_1F' },
+  SlateportCity: { center: 'SlateportCity_PokemonCenter_1F', mart: 'SlateportCity_Mart' },
+  MauvilleCity: { center: 'MauvilleCity_PokemonCenter_1F', mart: 'MauvilleCity_Mart' },
 }
 
 export function townOf(map: string): string | null {
@@ -43,7 +46,7 @@ function nearestCenterTown(pos: Pos, session: Session): string {
   }
   return best
 }
-const clerkGoal = (town: string): Goal => ({ name: `buy Potions at the ${town} Mart`, to: { map: TOWNS[town]!.mart, x: 3, y: 3 }, face: 'Left' })
+const clerkGoal = (town: string, mart: string): Goal => ({ name: `buy Potions at the ${town} Mart`, to: { map: mart, x: 3, y: 3 }, face: 'Left' })
 
 // A goal that takes priority over the story, 'use-potion' to drink one now, or null.
 export function serviceGoal(pos: Pos, f: Facts, session: Session): Goal | 'use-potion' | null {
@@ -72,8 +75,10 @@ export function serviceGoal(pos: Pos, f: Facts, session: Session): Goal | 'use-p
     const visit = session.town(town)
     if (!visit.healed) return nurseGoal(town)
     if (!visit.shopped) {
-      if (f.potions >= MIN_POTIONS || f.money < POTION_PRICE) visit.shopped = true
-      else return clerkGoal(town)
+      // Mauville's Mart sells no Potions, and Dewford has no Mart at all.
+      const mart = TOWNS[town]!.mart
+      if (!mart || !martStock(mart, f.flag)?.includes('POTION') || f.potions >= MIN_POTIONS || f.money < POTION_PRICE) visit.shopped = true
+      else return clerkGoal(town, mart)
     }
   }
   return null

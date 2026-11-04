@@ -13,6 +13,9 @@ export const rawMemorySchema = z.object({
   flags: z.string(),
   vars: z.string(),
   moveToLearn: z.number().int().optional(), // missing from scripts older than version 2
+  forgetMoveCursor: z.number().int().optional(), // -1 unless choosing a move to forget; version 3+
+  objects: z.string().optional(), // gObjectEvents (people and things on the map); version 3+
+  pokenavMode: z.number().int().optional(), // -1 unless the PokéNav is open; version 3+
 })
 export type RawMemory = z.infer<typeof rawMemorySchema>
 

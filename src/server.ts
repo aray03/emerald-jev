@@ -1,12 +1,12 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import express from 'express'
-import { checkpointsBetween, hasFirstBadge, storyProgress } from './goals.ts'
+import { checkpointsBetween, storyComplete, storyProgress } from './goals.ts'
 import { chooseMove, readHighlighted, readScreen, upscaleFrame, type JevCall } from './jev.ts'
 import { logPath, logStep, RUNS_DIR, saveFrame } from './log.ts'
 import { decodeFacts, type Facts } from './memory.ts'
 import { mapNameFor } from './nav.ts'
-import { decideAction, decideFromScreen, decideMove, decideOnFoot, needsScreen, pressesForHighlight } from './policy.ts'
+import { decideAction, decideForgetMove, decideFromScreen, decideMove, decideOnFoot, needsScreen, pressesForHighlight } from './policy.ts'
 import { placeName } from './questions.ts'
 import { gameStateSchema, type Action, type GameState } from './schemas.ts'
 import { Session } from './session.ts'
@@ -15,7 +15,7 @@ import { queueSave, takePendingSave } from './states.ts'
 const PORT = Number(process.env.EMERALD_PORT ?? 3100)
 const DRY_RUN = process.env.DRY_RUN === '1'
 const EXPECTED_GAME_CODE = 'BPEE' // Pokémon Emerald (USA, Europe)
-const LUA_SCRIPT_VERSION = 2 // must match SCRIPT_VERSION in lua/emerald-jev.lua
+const LUA_SCRIPT_VERSION = 3 // must match SCRIPT_VERSION in lua/emerald-jev.lua
 
 const app = express()
 let session = new Session()
@@ -118,14 +118,6 @@ app.post('/step', express.urlencoded({ extended: false, limit: '1mb' }), async (
 
   // Story progress is only trusted on a known map in the overworld (before that, memory is junk).
   if (map && state.overworld) {
-    if (hasFirstBadge(facts)) {
-      const action: Action = { kind: 'done', reason: 'won the Stone Badge from Roxanne' }
-      console.log(`[step ${step}] DONE: ${action.reason}`)
-      queueSave('07-first-badge')
-      logStep({ step, state, facts: loggable(facts), action })
-      res.send(encode(action))
-      return
-    }
     const { index } = storyProgress(facts, { map, x: state.x, y: state.y })
     if (session.storyIndex !== -1 && index > session.storyIndex) {
       for (const name of checkpointsBetween(session.storyIndex, index)) {
@@ -134,6 +126,14 @@ app.post('/step', express.urlencoded({ extended: false, limit: '1mb' }), async (
       }
     }
     session.storyIndex = index
+
+    if (storyComplete(facts)) {
+      const action: Action = { kind: 'done', reason: 'won the Dynamo Badge from Wattson' }
+      console.log(`[step ${step}] DONE: ${action.reason}`)
+      logStep({ step, state, facts: loggable(facts), action })
+      res.send(encode(action))
+      return
+    }
   }
 
   try {
@@ -158,6 +158,8 @@ async function decide(state: GameState, facts: Facts, map: string | null): Promi
 
   // The battle menus: memory knows exactly when the game is waiting for an action or a move.
   if (state.inBattle && facts.choosingAction) return { action: decideAction(state, facts, session), calls: [] }
+  // So does the screen for choosing a move to forget, whose cursor is a red box Jev can't place.
+  if (facts.forgetMoveCursor !== null) return { action: decideForgetMove(state, facts), calls: [] }
 
   const frame = saveFrame(step, state.screenshot)
   const image = await upscaleFrame(readFileSync(frame))

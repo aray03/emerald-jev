@@ -137,7 +137,7 @@ const flagIds = new Map<string, number>()
 for (const m of flagsH.matchAll(/^#define (FLAG_\w+)\s+(0x[0-9A-Fa-f]+|\d+)\b/gm)) flagIds.set(m[1]!, Number(m[2]))
 type Stock = { default: string[] | null; rules: { flag: number; set: boolean; items: string[] }[] }
 const marts: Record<string, Stock> = {}
-for (const mart of ['OldaleTown_Mart', 'PetalburgCity_Mart', 'RustboroCity_Mart']) {
+for (const mart of ['OldaleTown_Mart', 'PetalburgCity_Mart', 'RustboroCity_Mart', 'SlateportCity_Mart', 'MauvilleCity_Mart']) {
   const src = await text(`data/maps/${mart}/scripts.inc`)
   // Items of the `pokemart` list that follows a label (or the clerk script itself).
   const listAfter = (from: number) => {

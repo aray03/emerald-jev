@@ -1,4 +1,4 @@
-// Builds src/maps.generated.json: every map the bot visits on the way to the first gym, from the
+// Builds src/maps.generated.json: every map the bot visits on the way to the third gym, from the
 // pret/pokeemerald decompilation (the same data the ROM is built from).
 // Run with `npm run maps`. The output is committed, so the bot never needs the network for this.
 //
@@ -6,6 +6,8 @@
 // and edge connections to neighbouring maps. Grid rows use one character per tile:
 //   .  walkable      g  tall grass (walkable, wild Pokémon)      #  blocked (walls, water, ...)
 //   v ^ < >  a ledge you can only jump across in that direction (down, up, left, right)
+// Some maps also get `avoid` (tiles to walk on only when they are the goal, like gym switches)
+// and `overlay` (tiles whose walls change while a story flag is set, like gym barriers).
 
 import { writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -40,7 +42,42 @@ const MAPS = [
   'RustboroCity_Mart',
   'Route116',
   'RusturfTunnel',
+  'RustboroCity_DevonCorp_1F',
+  'RustboroCity_DevonCorp_2F',
+  'RustboroCity_DevonCorp_3F',
+  'Route104_MrBrineysHouse',
+  'DewfordTown',
+  'DewfordTown_PokemonCenter_1F',
+  'DewfordTown_Gym',
+  'Route106',
+  'GraniteCave_1F',
+  'GraniteCave_B1F',
+  'GraniteCave_B2F',
+  'GraniteCave_StevensRoom',
+  'Route109',
+  'SlateportCity',
+  'SlateportCity_PokemonCenter_1F',
+  'SlateportCity_Mart',
+  'SlateportCity_SternsShipyard_1F',
+  'SlateportCity_OceanicMuseum_1F',
+  'SlateportCity_OceanicMuseum_2F',
+  'Route110',
+  'MauvilleCity',
+  'MauvilleCity_PokemonCenter_1F',
+  'MauvilleCity_Mart',
+  'MauvilleCity_Gym',
 ]
+
+// Mauville Gym's switches each flip every electric barrier. Only switch 3 (3,9) is on the way
+// to Wattson, so all four are avoided unless one is the goal.
+const AVOID: Record<string, [number, number][]> = {
+  MauvilleCity_Gym: [[0, 15], [4, 12], [3, 9], [8, 9]],
+}
+// While FLAG_MAUVILLE_GYM_BARRIERS_STATE is set, the gym's OnLoad script runs this list of
+// `setmetatile x, y, METATILE_..., <collision>` lines.
+const OVERLAYS: Record<string, { flag: number; script: string }> = {
+  MauvilleCity_Gym: { flag: 0x63, script: 'MauvilleCity_Gym_EventScript_SetAltBarriers' },
+}
 
 const NUM_METATILES_IN_PRIMARY = 512 // include/fieldmap.h
 const METATILE_ID_MASK = 0x03ff // include/global.fieldmap.h
@@ -49,6 +86,8 @@ const COLLISION_MASK = 0x0c00
 const JUMP: Record<string, string> = { MB_JUMP_SOUTH: 'v', MB_JUMP_NORTH: '^', MB_JUMP_WEST: '<', MB_JUMP_EAST: '>' }
 const WATER = /^MB_.*WATER$/
 const GRASS = new Set(['MB_TALL_GRASS', 'MB_LONG_GRASS'])
+// Floors that need the Mach Bike: cracked floor drops you to the level below, mud slides you back.
+const NEEDS_BIKE = new Set(['MB_CRACKED_FLOOR', 'MB_CRACKED_FLOOR_HOLE', 'MB_MUDDY_SLOPE'])
 
 async function get(file: string): Promise<Response> {
   const res = await fetch(`${REPO}/${file}`)
@@ -116,7 +155,7 @@ for (const name of MAPS) {
     for (let x = 0; x < layout.width; x++) {
       const behavior = behaviorAt(x, y)
       if (JUMP[behavior]) row += JUMP[behavior]
-      else if (grid[y * layout.width + x]! & COLLISION_MASK || WATER.test(behavior)) row += '#'
+      else if (grid[y * layout.width + x]! & COLLISION_MASK || WATER.test(behavior) || NEEDS_BIKE.has(behavior)) row += '#'
       else row += GRASS.has(behavior) ? 'g' : '.'
     }
     rows.push(row)
@@ -134,9 +173,24 @@ for (const name of MAPS) {
     .map((c) => ({ direction: c.direction, to: byConstant.get(c.map) ?? null, offset: c.offset }))
     .filter((c) => c.to)
 
+  let overlay: { flag: number; tiles: [number, number, boolean][] } | undefined
+  if (OVERLAYS[name]) {
+    const { flag, script } = OVERLAYS[name]
+    const src = await text(`data/maps/${name}/scripts.inc`)
+    const body = src.slice(src.indexOf(`${script}::`), src.indexOf('\tend', src.indexOf(`${script}::`)))
+    const tiles = [...body.matchAll(/setmetatile (\d+), (\d+), \w+, (TRUE|FALSE)/g)].map(
+      (m): [number, number, boolean] => [Number(m[1]), Number(m[2]), m[3] === 'TRUE'],
+    )
+    if (!tiles.length) throw new Error(`no setmetatile lines in ${script}`)
+    overlay = { flag, tiles }
+  }
+
   const [group, num] = mapIds.get(name)!
-  out[name] = { group, num, w: layout.width, h: layout.height, rows, warps, connections }
-  console.log(`${name} ${group}/${num} ${layout.width}x${layout.height}, ${warps.length} warps, ${connections.length} connections`)
+  out[name] = { group, num, w: layout.width, h: layout.height, rows, warps, connections, avoid: AVOID[name], overlay }
+  console.log(
+    `${name} ${group}/${num} ${layout.width}x${layout.height}, ${warps.length} warps, ${connections.length} connections` +
+      (overlay ? `, ${overlay.tiles.length} overlay tiles` : ''),
+  )
 }
 
 writeFileSync(OUT, JSON.stringify(out, null, 1) + '\n')

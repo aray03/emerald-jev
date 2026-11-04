@@ -124,6 +124,32 @@ export function decodeMoney(raw: number, encryptionKey: number): number {
   return (raw ^ encryptionKey) >>> 0
 }
 
+// People and things on the map (gObjectEvents, 16 × struct ObjectEvent of 0x24 bytes).
+// `localId` matches the object's position in the map's object_events list, counting from 1.
+export type MapObject = { localId: number; mapGroup: number; mapNum: number; x: number; y: number }
+
+const OBJECT_EVENT_SIZE = 0x24
+const MAP_OFFSET = 7 // object coordinates are stored 7 tiles further in than map coordinates
+
+export function decodeObjects(hex: string | undefined): MapObject[] {
+  if (!hex) return []
+  const b = bytes(hex)
+  const out: MapObject[] = []
+  for (let i = 0; i + OBJECT_EVENT_SIZE <= b.length; i += OBJECT_EVENT_SIZE) {
+    const active = b.readUInt8(i) & 1
+    const isPlayer = b.readUInt8(i + 0x02) & 1
+    if (!active || isPlayer) continue
+    out.push({
+      localId: b.readUInt8(i + 0x08),
+      mapNum: b.readUInt8(i + 0x09),
+      mapGroup: b.readUInt8(i + 0x0a),
+      x: b.readInt16LE(i + 0x10) - MAP_OFFSET,
+      y: b.readInt16LE(i + 0x12) - MAP_OFFSET,
+    })
+  }
+  return out
+}
+
 export type Facts = {
   party0: Mon | null
   player: Mon | null // in battle
@@ -136,6 +162,9 @@ export type Facts = {
   potions: number
   money: number
   moveToLearn: Move | null | undefined // the move being offered (gMoveToLearn); undefined if the Lua script doesn't send it
+  forgetMoveCursor: number | null // on the screen for choosing a move to forget: 0-3 known moves, 4 the new one
+  objects: MapObject[]
+  pokenavMode: number | null // while the PokéNav is open: 0 normal, 1 tutorial before calling Mr. Stone, 2 after
   flag: (id: number) => boolean
   variable: (id: number) => number
 }
@@ -157,6 +186,9 @@ export function decodeFacts(raw: RawMemory, inBattle: boolean): Facts {
     money: decodeMoney(raw.money, raw.encryptionKey),
     moveToLearn:
       raw.moveToLearn === undefined ? undefined : raw.moveToLearn ? move(raw.moveToLearn, DATA.moves[raw.moveToLearn]?.pp ?? 0) : null,
+    forgetMoveCursor: raw.forgetMoveCursor !== undefined && raw.forgetMoveCursor >= 0 ? raw.forgetMoveCursor : null,
+    objects: decodeObjects(raw.objects),
+    pokenavMode: raw.pokenavMode !== undefined && raw.pokenavMode >= 0 ? raw.pokenavMode : null,
     flag: (id) => ((flags[id >> 3] ?? 0) >> (id & 7)) & 1 ? true : false,
     variable: (id) => (2 * (id - 0x4000) + 1 < vars.length ? vars.readUInt16LE(2 * (id - 0x4000)) : 0),
   }

@@ -5,15 +5,27 @@ import type { Dir } from './schemas.ts'
 // Pathfinding over every map on the route at once (src/maps.generated.json, built from
 // pokeemerald by `npm run maps`). A position is (map, x, y); one press of a direction either
 // walks a tile, jumps a ledge, or crosses a door, stairs, exit mat or map edge into another map.
-// People and other things that move aren't in that data, so moves that fail at runtime are
-// remembered as blocked for a while.
+// People and things on the map are read from memory each step (setObstacles); anything else that
+// blocks a move at runtime is remembered as blocked for a while.
 
 export type Tile = { x: number; y: number }
 export type Pos = Tile & { map: string }
 
 type Warp = { x: number; y: number; to: string | null; toWarp: number; behavior: string }
 type Connection = { direction: 'up' | 'down' | 'left' | 'right'; to: string; offset: number }
-type MapData = { group: number; num: number; w: number; h: number; rows: string[]; warps: Warp[]; connections: Connection[] }
+// `avoid`: tiles walked on only when they are the goal (gym switches). `overlay`: tiles whose
+// walls change while a story flag is set (Mauville Gym's barriers).
+type MapData = {
+  group: number
+  num: number
+  w: number
+  h: number
+  rows: string[]
+  warps: Warp[]
+  connections: Connection[]
+  avoid?: [number, number][]
+  overlay?: { flag: number; tiles: [number, number, boolean][] }
+}
 
 export const MAPS: Record<string, MapData> = JSON.parse(
   readFileSync(path.resolve(import.meta.dirname, 'maps.generated.json'), 'utf8'),
@@ -54,6 +66,14 @@ export class Navigator {
   private fails = new Map<string, number>()
   private last: { from: Pos; dir: Dir } | null = null
   private step = 0
+  private obstacles = new Set<string>() // tiles with people or things on them right now
+  private flag: (id: number) => boolean = () => false
+
+  // What memory says this step: the objects standing on the player's map, and the story flags.
+  setWorld(map: string, objects: Tile[], flag: (id: number) => boolean) {
+    this.obstacles = new Set(objects.map((o) => key({ map, ...o })))
+    this.flag = flag
+  }
 
   // Call once per overworld step, before choosing the next move.
   observe(pos: Pos) {
@@ -96,7 +116,12 @@ export class Navigator {
   move(cur: Pos, dir: Dir, target?: Pos): Pos | null {
     const map = MAPS[cur.map]
     if (!map || this.blocked.has(`${key(cur)}:${dir}`)) return null
-    const tile = (x: number, y: number) => (x >= 0 && y >= 0 && x < map.w && y < map.h ? map.rows[y]![x]! : null)
+    const overlay = map.overlay && this.flag(map.overlay.flag) ? map.overlay.tiles : null
+    const tile = (x: number, y: number) => {
+      if (x < 0 || y < 0 || x >= map.w || y >= map.h) return null
+      const o = overlay?.find(([ox, oy]) => ox === x && oy === y)
+      return o ? (o[2] ? '#' : '.') : map.rows[y]![x]!
+    }
     const warpAt = (x: number, y: number) => map.warps.find((w) => w.x === x && w.y === y)
 
     // Standing on an exit mat and pressing its direction.
@@ -106,6 +131,7 @@ export class Navigator {
     const nx = cur.x + STEP[dir].x
     const ny = cur.y + STEP[dir].y
     const isTarget = target && target.map === cur.map && target.x === nx && target.y === ny
+    if (!isTarget && (this.obstacles.has(key({ map: cur.map, x: nx, y: ny })) || map.avoid?.some(([ax, ay]) => ax === nx && ay === ny))) return null
 
     // Off the edge of the map into a connected one.
     const t = tile(nx, ny)

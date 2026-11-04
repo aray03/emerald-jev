@@ -1,7 +1,7 @@
-import { storyProgress, type Goal } from './goals.ts'
+import { FLAG, storyProgress, VAR, type Goal } from './goals.ts'
 import type { ScreenRead } from './jev.ts'
 import { canAttack, ITEM_POTION, martStock, type Facts, type Mon, type Move } from './memory.ts'
-import type { Pos } from './nav.ts'
+import { MAPS, type Pos } from './nav.ts'
 import { isLowHp, noteTalk, potionsToBuy, serviceGoal } from './services.ts'
 import type { Session } from './session.ts'
 import type { Action, Button, Dir, GameState, Press } from './schemas.ts'
@@ -51,6 +51,7 @@ function gridPresses(from: number, to: number): Press[] {
 const FIGHT = 0
 const BAG = 1
 const RUN = 3
+const POKENAV_MODE_FORCE_CALL_READY = 1
 const BATTLE_TYPE_TRAINER = 1 << 3
 
 // The action menu (FIGHT / BAG / POKéMON / RUN). RUN only from a wild battle with no PP left in
@@ -132,11 +133,27 @@ export function decideFromScreen(s: GameState, f: Facts | null, map: string | nu
       return act('keep the clock time', press(['A'], 6, step))
     case 'starter_bag':
       return act('pick the highlighted starter (Torchic)', press(['A'], 6, step))
-    case 'title_or_intro':
+    // Outside Devon Corp the PokéNav opens in a tutorial that can't be left until Mr. Stone has
+    // been called: B does nothing, and A does nothing on any button but MATCH CALL.
+    case 'pokenav':
+      if (f?.pokenavMode === POKENAV_MODE_FORCE_CALL_READY) return act('move on to MATCH CALL and try it', press(['Down'], 3, 8), press(['A'], 6, step))
+      return act('close the PokéNav', press(['B'], 6, step))
+    case 'pokenav_match_call':
+      // A picks MR. STONE, then CALL (where the cursor starts), then moves the call along.
+      if (f?.pokenavMode === POKENAV_MODE_FORCE_CALL_READY) return act('call MR. STONE', press(['A'], 6, step))
+      return act('leave MATCH CALL', press(['B'], 6, step))
     case 'other_menu':
+      // Mr. Briney in Dewford: PETALBURG / SLATEPORT / EXIT, with the cursor starting on EXIT.
+      if (map === 'DewfordTown' && f?.flag(FLAG.DELIVERED_STEVEN_LETTER))
+        return { kind: 'highlight', menu: "Mr. Briney's list of places to sail", options: ['PETALBURG', 'SLATEPORT', 'EXIT'], want: 'SLATEPORT', then: [press(['A'], 6, step)], reason: 'sail to SLATEPORT' }
+      return act('advance or accept the default option', press(['A'], 6, step))
+    case 'title_or_intro':
       return act('advance or accept the default option', press(['A'], 6, step))
 
     case 'start_menu':
+      // Outside Devon Corp, the game opens a START menu that only closes once POKéNAV is chosen.
+      if (session.intent !== 'potion' && map === 'RustboroCity' && f?.variable(VAR.RUSTBORO_CITY_STATE) === 6)
+        return { kind: 'highlight', menu: 'START menu', options: startMenuOptions(f), want: 'POKéNAV', then: [press(['A'], 6, step)], reason: 'open the POKéNAV as asked' }
       if (session.intent !== 'potion') return act('close the START menu', press(['B'], 6, step))
       return { kind: 'highlight', menu: 'START menu', options: startMenuOptions(f), want: 'BAG', then: [press(['A'], 6, step)], reason: 'open the BAG' }
 
@@ -173,20 +190,11 @@ export function decideFromScreen(s: GameState, f: Facts | null, map: string | nu
       // Torchic is the first (and only) Pokémon.
       return session.intent ? act('give the Potion to the first Pokémon', press(['A'], 6, step)) : act('leave the party menu', press(['B'], 6, step))
 
-    case 'move_forget': {
-      const learning = f?.moveToLearn
-      const forget = f?.party0 && learning ? replaceableMove(f.party0, learning) : null
-      // Nothing to swap out (shouldn't happen after answering YES): B backs out, which declines.
-      if (!f?.party0 || !learning || !forget) return act('keep the current moves', press(['B'], 6, step))
-      return {
-        kind: 'highlight',
-        menu: 'list of moves to forget',
-        options: [...f.party0.moves.map((m) => m.name), learning.name],
-        want: forget.name,
-        then: [press(['A'], 6, step)],
-        reason: `forget ${forget.name} for ${learning.name}`,
-      }
-    }
+    case 'move_forget':
+      // Memory says when the real list of moves is open (decideForgetMove handles it without Jev),
+      // so this is battle or evolution text that mentions moves, like "can't learn more than four
+      // moves". A advances it; B does too, and is also safe if a list really is open (it declines).
+      return r.textBox === 'yes' ? act('advance the text about moves', press(['A'], 6, step)) : act('back out', press(['B'], 6, step))
 
     case 'mart_menu':
       return f && potionsToBuy(f) > 0 && !session.boughtThisVisit
@@ -223,6 +231,25 @@ export function decideFromScreen(s: GameState, f: Facts | null, map: string | nu
   }
 }
 
+// The screen for choosing a move to forget, read from memory: a red box marks the cursor over
+// the four known moves (0-3) and the new one (4). A forgets the boxed move; picking the new
+// move turns it down.
+export function decideForgetMove(s: GameState, f: Facts): Action {
+  const cursor = f.forgetMoveCursor ?? 0
+  const learning = f.moveToLearn
+  const forget = f.party0 && learning ? replaceableMove(f.party0, learning) : null
+  const index = forget ? f.party0!.moves.findIndex((m) => m.id === forget.id) : -1
+  const target = index === -1 ? 4 : index
+  const reason = forget && learning ? `forget ${forget.name} for ${learning.name}` : `keep the current moves${learning ? `, skip ${learning.name}` : ''}`
+  // One press per step, rechecking the cursor in memory: presses are ignored while the screen
+  // fades in, and an A after a dropped Down would forget the wrong move.
+  if (cursor !== target) {
+    const dir: Dir = target > cursor ? 'Down' : 'Up'
+    return act(`${reason}: move the box ${dir}`, press([dir], 3, framesFor(s, SCREEN_STEP_SECONDS)))
+  }
+  return act(reason, press(['A'], 6, framesFor(s, SLOW_STEP_SECONDS)))
+}
+
 // When a move is offered with no free slot: the move to forget for it, or null to turn it down.
 // Only damaging moves are worth learning, and only moves that do no damage get forgotten.
 export function replaceableMove(mon: Mon, learning: Move): Move | null {
@@ -233,10 +260,10 @@ export function replaceableMove(mon: Mon, learning: Move): Move | null {
 // START menu entries in order (src/start_menu.c). Which ones exist depends on story flags.
 function startMenuOptions(f: Facts | null): string[] {
   const out: string[] = []
-  if (f?.flag(0x861)) out.push('POKéDEX')
-  if (f?.flag(0x860)) out.push('POKéMON')
+  if (f?.flag(FLAG.SYS_POKEDEX_GET)) out.push('POKéDEX')
+  if (f?.flag(FLAG.SYS_POKEMON_GET)) out.push('POKéMON')
   out.push('BAG')
-  if (f?.flag(0x862)) out.push('POKéNAV')
+  if (f?.flag(FLAG.SYS_POKENAV_GET)) out.push('POKéNAV')
   out.push("the player's name", 'SAVE', 'OPTION', 'EXIT')
   return out
 }
@@ -272,6 +299,10 @@ function isPast(pos: Pos, to: Pos, dir: Dir) {
 }
 
 export function decideOnFoot(s: GameState, f: Facts, pos: Pos, session: Session): Action {
+  // People standing on this map are walls for pathfinding; story flags switch Mauville Gym's barriers.
+  const m = MAPS[pos.map]
+  session.nav.setWorld(pos.map, f.objects.filter((o) => m && o.mapGroup === m.group && o.mapNum === m.num), f.flag)
+
   const service = serviceGoal(pos, f, session)
   if (service === 'use-potion') {
     session.intent = 'potion'
@@ -280,8 +311,8 @@ export function decideOnFoot(s: GameState, f: Facts, pos: Pos, session: Session)
   }
   session.intent = null
 
-  const goal: Goal | null = service ?? storyProgress(f, pos).goal
-  if (!goal) return wait('no goal: the first badge is won', 60)
+  const goal: Goal | null = service ?? storyProgress(f, pos, session.nav).goal
+  if (!goal) return wait('no goal: the third badge is won', 60)
   return walkTo(goal, pos, session)
 }
 

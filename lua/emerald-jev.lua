@@ -4,7 +4,7 @@
 
 local SERVER = "http://127.0.0.1:3100"
 -- Bump whenever what this script sends changes; the server warns when BizHawk runs an old copy.
-local SCRIPT_VERSION = 2
+local SCRIPT_VERSION = 3
 local SETTLE_FRAMES = 10 -- let the game draw before reading the screen
 local SPEED_PERCENT = 400 -- emulator speed; the server scales its waits so screen checks stay ~0.25 s apart
 local BUS = "System Bus"
@@ -28,8 +28,17 @@ local ADDR = {
   moveCursor = 0x020244B0, -- gMoveSelectionCursor[0]
   controllerFunc = 0x03005D60, -- gBattlerControllerFuncs[0]
   moveToLearn = 0x020244E2, -- gMoveToLearn (u16), set while a move is being offered
+  summaryScreen = 0x0203CF1C, -- sMonSummaryScreen, a pointer into EWRAM (NULL when closed)
+  objectEvents = 0x02037350, -- gObjectEvents[16] (struct ObjectEvent, 0x24 each)
+  pokenavResources = 0x0203CF40, -- gPokenavResources, NULL unless the PokéNav is open
 }
 local CB2_OVERWORLD = 0x08085E5C
+local CB2_SUMMARY_SCREEN = 0x081BFAB4 -- MainCB2 in src/pokemon_summary_screen.c
+-- Inside struct PokemonSummaryScreenData: the mode, and the red box around a move.
+local SUMMARY_MODE, SUMMARY_MODE_SELECT_MOVE = 0x40BC, 3
+local SUMMARY_FIRST_MOVE_INDEX = 0x40C6
+local OBJECT_EVENTS_LEN = 16 * 0x24
+local POKENAV_MODE = 0x08 -- u16 mode inside struct PokenavResources
 local SB1_VARS = 0x139C -- u16 vars[] inside SaveBlock1, indexed by (id - 0x4000)
 -- Raw blocks sent as hex; src/memory.ts decodes them. Offsets inside SaveBlock1/2.
 local SB1_MONEY = 0x490
@@ -65,6 +74,23 @@ local function hex(addr, len)
   return table.concat(out)
 end
 
+-- The cursor (0-3 known moves, 4 the new one) on the screen for choosing a move to forget,
+-- or -1 when that screen isn't open.
+local function readForgetMoveCursor(cb2)
+  if (cb2 | 1) ~= (CB2_SUMMARY_SCREEN | 1) then return -1 end
+  local p = u32(ADDR.summaryScreen)
+  if p < 0x02000000 or p >= 0x02040000 - SUMMARY_FIRST_MOVE_INDEX then return -1 end
+  if u8(p + SUMMARY_MODE) ~= SUMMARY_MODE_SELECT_MOVE then return -1 end
+  return u8(p + SUMMARY_FIRST_MOVE_INDEX)
+end
+
+-- The PokéNav's mode (0 normal, 1 tutorial before calling Mr. Stone, 2 after), or -1 when closed.
+local function readPokenavMode()
+  local p = u32(ADDR.pokenavResources)
+  if p < 0x02000000 or p >= 0x02040000 - POKENAV_MODE then return -1 end
+  return u16(p + POKENAV_MODE)
+end
+
 local function readState()
   local sb1 = u32(ADDR.saveBlock1Ptr)
   local sb2 = u32(ADDR.saveBlock2Ptr)
@@ -77,7 +103,8 @@ local function readState()
       '"inBattle":%s,"controlsLocked":%s,"overworld":%s,"battleFlags":%d,"battleOutcome":%d,' ..
       '"vars":{"introState":%d,"townState":%d,"route101State":%d,"birchLabState":%d},"screenshot":"%s",' ..
       '"raw":{"party0":"%s","battleMons":"%s","actionCursor":%d,"moveCursor":%d,"controllerFunc":%d,' ..
-      '"encryptionKey":%d,"money":%d,"bagItems":"%s","flags":"%s","vars":"%s","moveToLearn":%d}}',
+      '"encryptionKey":%d,"money":%d,"bagItems":"%s","flags":"%s","vars":"%s","moveToLearn":%d,' ..
+      '"forgetMoveCursor":%d,"objects":"%s","pokenavMode":%d}}',
     SCRIPT_VERSION,
     emu.framecount(),
     SPEED_PERCENT,
@@ -106,7 +133,10 @@ local function readState()
     hex(sb1 + SB1_BAG_ITEMS, BAG_ITEMS_LEN),
     hex(sb1 + SB1_FLAGS, FLAGS_LEN),
     hex(sb1 + SB1_VARS, VARS_LEN),
-    u16(ADDR.moveToLearn)
+    u16(ADDR.moveToLearn),
+    readForgetMoveCursor(cb2),
+    hex(ADDR.objectEvents, OBJECT_EVENTS_LEN),
+    readPokenavMode()
   )
 end
 
