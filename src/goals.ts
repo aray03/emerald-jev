@@ -1,5 +1,5 @@
 import type { Facts } from './memory.ts'
-import { MAPS, type Navigator, type Pos } from './nav.ts'
+import type { Navigator, Pos } from './nav.ts'
 import type { Dir } from './schemas.ts'
 
 // Story goals for a male player (Brendan) from New Game to the third badge, as an ordered list.
@@ -8,7 +8,8 @@ import type { Dir } from './schemas.ts'
 
 // Walk to `to`, then either press `push` (through a door, exit mat or edge with no warp data)
 // or turn to `face` and press A (talk to someone, use something). With neither, arriving is enough.
-export type Goal = { name: string; to: Pos; push?: Dir; face?: Dir }
+// lurk: at `to`, keep pressing A toward that side, for someone who walks past instead of standing still.
+export type Goal = { name: string; to: Pos; push?: Dir; face?: Dir; lurk?: Dir }
 
 export const FLAG = {
   DEFEATED_RIVAL_ROUTE103: 0x82,
@@ -71,30 +72,11 @@ function train(level: number, place: string, spot: [Pos, Pos], checkpoint: strin
   }
 }
 
-const TOWARD: Record<Dir, { x: number; y: number }> = { Up: { x: 0, y: -1 }, Down: { x: 0, y: 1 }, Left: { x: -1, y: 0 }, Right: { x: 1, y: 0 } }
-const OPPOSITE: Record<Dir, Dir> = { Up: 'Down', Down: 'Up', Left: 'Right', Right: 'Left' }
-
-// Talk to someone who walks around (Mr. Briney in his house): stand next to where memory says
-// they are now, on the side the fewest steps away, and face them. Before reaching their map,
-// head for where they start.
-function talkTo(name: string, map: string, localId: number, start: Pos, f: Facts, pos: Pos, nav?: Navigator): Goal {
-  const m = MAPS[map]
-  const ids = m ? { group: m.group, num: m.num } : null
-  const who = f.objects.find((o) => o.localId === localId && ids && o.mapGroup === ids.group && o.mapNum === ids.num)
-  const there = who ? at(map, who.x, who.y) : start
-  let best: Goal | null = null
-  let bestSteps = Infinity
-  for (const side of Object.keys(TOWARD) as Dir[]) {
-    const to = at(map, there.x + TOWARD[side].x, there.y + TOWARD[side].y)
-    if (m?.rows[to.y]?.[to.x] !== '.') continue
-    if (f.objects.some((o) => o.mapGroup === m.group && o.mapNum === m.num && o.x === to.x && o.y === to.y)) continue
-    const steps = nav ? nav.distance(pos, to) : 0
-    if (steps !== null && steps < bestSteps) {
-      best = { name, to, face: OPPOSITE[side] }
-      bestSteps = steps
-    }
-  }
-  return best ?? { name, to: at(map, there.x, there.y + 1), face: 'Up' }
+// Talk to someone who walks a fixed loop (Mr. Briney in his house). They move faster than the
+// bot steps, so chasing them goes in circles, and standing in the loop only stops Peeko, who
+// walks one tile ahead of Briney. Instead, stand beside the loop and press A as they pass.
+function talkTo(name: string, waitAt: Pos, toward: Dir): Goal {
+  return { name, to: waitAt, lurk: toward }
 }
 
 const STEPS: Step[] = [
@@ -191,13 +173,14 @@ const STEPS: Step[] = [
     goal: () => ({ name: 'meet the rival at the south exit of Rustboro', to: at('RustboroCity', 15, 53) }),
   },
   {
-    // Mr. Briney walks around his house. Once you say YES, you're warped onto Route 104 and the
-    // boat leaves on its own.
+    // Mr. Briney walks a loop around his table (down x=9, left y=6, up x=6, right y=3), Peeko
+    // just ahead of him. Wait at (10,4) facing the loop. Once you say YES, you're warped onto
+    // Route 104 and the boat leaves on its own.
     done: (f) => f.flag(FLAG.VISITED_DEWFORD_TOWN),
-    goal: (f, pos, nav) =>
+    goal: (f, pos) =>
       pos.map === 'Route104' && f.variable(VAR.BOARD_BRINEY_BOAT_STATE) === 1
         ? { name: "board Mr. Briney's boat", to: pos }
-        : talkTo('ask Mr. Briney to sail to Dewford', 'Route104_MrBrineysHouse', 1, at('Route104_MrBrineysHouse', 9, 3), f, pos, nav),
+        : talkTo('ask Mr. Briney to sail to Dewford', at('Route104_MrBrineysHouse', 10, 4), 'Left'),
     checkpoint: '09-dewford',
   },
 

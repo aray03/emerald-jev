@@ -1,6 +1,6 @@
 import { FLAG, storyProgress, VAR, type Goal } from './goals.ts'
 import type { ScreenRead } from './jev.ts'
-import { canAttack, ITEM_POTION, martStock, type Facts, type Mon, type Move } from './memory.ts'
+import { canAttack, ITEM_POTION, martStock, type Facts, type MapObject, type Mon, type Move } from './memory.ts'
 import { MAPS, type Pos } from './nav.ts'
 import { isLowHp, noteTalk, potionsToBuy, serviceGoal } from './services.ts'
 import type { Session } from './session.ts'
@@ -111,12 +111,24 @@ export function decideFromScreen(s: GameState, f: Facts | null, map: string | nu
   // Never press B on the evolution screen: holding B cancels evolving into Combusken.
   if (r.kind === 'evolution') return r.textBox === 'yes' ? act('advance the evolution text', press(['A'], 6, step)) : wait('evolving', slow)
 
+  // Mr. Briney on Dewford's dock: his PETALBURG / SLATEPORT / EXIT menu starts on EXIT, and Jev
+  // reads it as plain overworld, so A alone sails nowhere. Up does nothing on his text, and on
+  // the menu it moves EXIT to SLATEPORT before the A.
+  const brineyDewford = map === 'DewfordTown' && s.x === 11 && s.y === 9 && s.controlsLocked
+  if (brineyDewford && r.kind !== 'other_menu' && f?.flag(FLAG.DELIVERED_STEVEN_LETTER) && f.flag(FLAG.HIDE_ROUTE_109_MR_BRINEY)) {
+    return act("talk through Mr. Briney's menu to SLATEPORT", press(['Up'], 3, 10), press(['A'], 6, step))
+  }
+
   // The nickname question is the one YES/NO we answer NO, and it only comes up in Birch's lab.
   // Outside the lab, ignore Jev's nickname answer: confirming the player's own name ("So it's
   // MAY?") reads as name-related and can come back unclear.
   const inLab = map === 'LittlerootTown_ProfessorBirchsLab'
   if (inLab && r.asksNickname === 'yes') return act('decline the nickname', press(['B'], 6, step))
 
+  // An arrow clearly on YES means the box is open, even when Jev is unsure about the box itself.
+  if (r.yesNo === 'unclear' && r.cursorOnYes === 'yes' && !(inLab && r.asksNickname !== 'no')) {
+    return act('answer YES', press(['A'], 6, step))
+  }
   if (r.yesNo === 'unclear') return wait('unsure whether a YES/NO box is open', slow)
   if (r.yesNo === 'yes') {
     if (inLab && r.asksNickname === 'unclear') return wait('unsure whether this asks for a nickname', slow)
@@ -223,11 +235,16 @@ export function decideFromScreen(s: GameState, f: Facts | null, map: string | nu
       // Memory knows whether the game is in its overworld; the intro's scenery can look like one.
       if (!s.overworld && !s.inBattle && r.kind === 'overworld') return act('advance the title or intro', press(['A'], 6, step))
       if (r.textBox === 'yes') return act('advance the text', press(['A'], 6, step))
+      // Memory already handles the action and move menus, so anything else in a battle (text,
+      // the level-up stats box, an animation) is safe to press A on; A does nothing mid-animation.
+      if (s.inBattle) return act('advance the battle', press(['A'], 6, step))
       if (r.textBox === 'unclear') return wait('unsure whether text is showing', slow)
-      return wait(s.inBattle ? 'battle animation' : 'a cutscene is moving the player', slow)
+      return wait('a cutscene is moving the player', slow)
 
     case 'unclear':
-      return r.textBox === 'yes' ? act('advance the text', press(['A'], 6, step)) : wait('unsure what screen this is', slow)
+      if (r.textBox === 'yes') return act('advance the text', press(['A'], 6, step))
+      if (s.inBattle) return act('advance the battle', press(['A'], 6, step))
+      return wait('unsure what screen this is', slow)
   }
 }
 
@@ -301,7 +318,8 @@ function isPast(pos: Pos, to: Pos, dir: Dir) {
 export function decideOnFoot(s: GameState, f: Facts, pos: Pos, session: Session): Action {
   // People standing on this map are walls for pathfinding; story flags switch Mauville Gym's barriers.
   const m = MAPS[pos.map]
-  session.nav.setWorld(pos.map, f.objects.filter((o) => m && o.mapGroup === m.group && o.mapNum === m.num), f.flag)
+  const here = f.objects.filter((o) => m && o.mapGroup === m.group && o.mapNum === m.num)
+  session.nav.setWorld(pos.map, here, f.flag)
 
   const service = serviceGoal(pos, f, session)
   if (service === 'use-potion') {
@@ -313,10 +331,10 @@ export function decideOnFoot(s: GameState, f: Facts, pos: Pos, session: Session)
 
   const goal: Goal | null = service ?? storyProgress(f, pos, session.nav).goal
   if (!goal) return wait('no goal: the third badge is won', 60)
-  return walkTo(goal, pos, session)
+  return walkTo(goal, pos, here, session)
 }
 
-function walkTo(goal: Goal, pos: Pos, session: Session): Action {
+function walkTo(goal: Goal, pos: Pos, people: MapObject[], session: Session): Action {
   const nav = session.nav
   nav.observe(pos)
 
@@ -332,6 +350,16 @@ function walkTo(goal: Goal, pos: Pos, session: Session): Action {
 
   const here = pos.map === goal.to.map && pos.x === goal.to.x && pos.y === goal.to.y
   if (!here) return wait(`${goal.name}: no path from ${pos.map} (${pos.x},${pos.y}) yet`, 60)
+  if (goal.lurk) {
+    // Tapping toward an empty tile would walk onto it, so only turn while someone stands there
+    // (memory moves a walker's tile as it starts each step). A toward an empty tile does nothing.
+    const d = { Up: [0, -1], Down: [0, 1], Left: [-1, 0], Right: [1, 0] }[goal.lurk]
+    const blocked = people.some((o) => o.x === pos.x + d[0]! && o.y === pos.y + d[1]!)
+    const mash = Array.from({ length: 8 }, () => press(['A'], 2, 14))
+    return blocked
+      ? act(`${goal.name}: turn ${goal.lurk} and press A`, press([goal.lurk], 3, 4), ...mash)
+      : act(`${goal.name}: press A as they pass`, ...mash)
+  }
   if (goal.face) {
     noteTalk(goal, session)
     return act(`${goal.name}: face ${goal.face} and press A`, press([goal.face], 3, 8), press(['A'], 6, 30))
