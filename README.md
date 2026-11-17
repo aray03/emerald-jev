@@ -1,7 +1,8 @@
 # emerald-jev
 
-A bot that plays Pokémon Emerald from **New Game** to beating **Wattson**, the third gym leader in Mauville, using
-[TypeSafe's Jev](https://docs.typesafe.ai) to read the screen.
+A bot that plays Pokémon Emerald on its own from **New Game** through the **first gym** (Roxanne in Rustboro), using
+[TypeSafe's Jev](https://docs.typesafe.ai) to read the screen. Its story goals go on to **Wattson**, the third gym leader
+in Mauville, and that part is still being worked on.
 
 ```
 BizHawk + lua/emerald-jev.lua                bridge server (src/server.ts, :3100)
@@ -60,7 +61,7 @@ Restart the server between runs so it forgets what it learned about the last one
 
 ## First time: do a dry run
 
-The memory addresses come from the pret/pokeemerald decompilation and haven't been checked on a real run yet. Run `npm run dry`, start a New Game by hand, and check that:
+The memory addresses come from the pret/pokeemerald decompilation and hold up on real runs through the first gym. On a new setup, run `npm run dry`, start a New Game by hand, and check that:
 
 | Check | Expected |
 |---|---|
